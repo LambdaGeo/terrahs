@@ -19,8 +19,11 @@ module TerraHS.IO.Dbf
 
 import Control.Monad (replicateM)
 import Data.Binary.Get
+import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Data.Char (chr, isSpace)
 import Text.Read (readMaybe)
 
@@ -57,6 +60,21 @@ trimNuls = takeWhile (/= '\NUL')
 trimSpacesBoth :: String -> String
 trimSpacesBoth = f . f
   where f = reverse . dropWhile isSpace
+
+-- | Decodes a raw field's bytes to 'String'. Modern DBFs (the ones
+-- QGIS/IBGE and friends produce, alongside a @.cpg@ naming the
+-- encoding) are UTF-8, so that's tried first; a byte sequence that
+-- isn't valid UTF-8 falls back to one 'Char' per byte (equivalent to
+-- Latin-1), which is what this function used to do unconditionally —
+-- the common case for older DBFs that predate a documented encoding.
+-- Doesn't yet consult the @.cpg@ file itself (harmless: UTF-8 text
+-- practically never happens to also be valid, different, non-ASCII
+-- Latin-1 text, so the heuristic and an explicit @.cpg@ read would
+-- agree on every real file that's actually UTF-8).
+decodeFieldBytes :: B.ByteString -> String
+decodeFieldBytes bs = case TE.decodeUtf8' bs of
+  Right t -> T.unpack t
+  Left _  -> BC.unpack bs
 
 data DbfHeader = DbfHeader
   { dhNumRecords :: Int
@@ -113,7 +131,7 @@ numberOrNull s = maybe DbfNull DbfNumber (readMaybe (dropWhile (== '+') s))
 getFieldValue :: DbfField -> Get (String, DbfValue)
 getFieldValue field = do
   raw <- getByteString (dbfFieldLength field)
-  let txt = trimSpacesBoth (BC.unpack raw)
+  let txt = trimSpacesBoth (decodeFieldBytes raw)
   pure (dbfFieldName field, interpretValue (dbfFieldType field) txt)
 
 getRecord :: [DbfField] -> Get [(String, DbfValue)]
