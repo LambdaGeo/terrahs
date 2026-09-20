@@ -83,6 +83,14 @@ step is a drop-in replacement for the "decide next state per cell"
 step of a TerraHS model, not a separate universe. It only depends on
 TerraHS as a library — none of this lives in the core package.
 
+Besides the text output, it renders each run as PNGs (via
+`JuicyPixels`, pure Haskell, no FFI — `Render.hs`, local to this
+example) into `examples/comonad-ca-demo/out/` (not checked in —
+regenerated on every run): one frame per generation/time step plus a
+side-by-side strip, for both the Game of Life grid and the diffusion
+zones (drawn at their real geometric position, via `envelope`, not a
+schematic).
+
 ```sh
 cabal run comonad-ca-demo
 ```

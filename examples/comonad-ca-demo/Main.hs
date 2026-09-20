@@ -39,8 +39,15 @@ import Control.Comonad (extend, extract)
 import Control.Comonad.Store (Store, store, pos, peek)
 import Data.Functor.Contravariant (Predicate (..))
 import Data.List (intercalate, sort, nub)
+import System.Directory (createDirectoryIfMissing)
 
 import TerraHS
+import Render (renderLifeGrid, renderLifeStrip, renderZones, renderZonesStrip)
+
+-- | Where the PNGs land, relative to the repository root (same
+-- convention as the other examples' @dataDir@).
+outDir :: FilePath
+outDir = "examples/comonad-ca-demo/out"
 
 -- * Bridging 'Coverage' and 'Store'
 --
@@ -132,6 +139,19 @@ runLifeDemo = do
   putStrLn ("Check -- generation 4 == glider shifted by (+1,+1): "
              ++ show (expectedAlive == actualAlive))
 
+  -- PNGs: one per generation, plus a strip with all of them side by
+  -- side, so the run can actually be looked at.
+  let window       = ((-1, -1), (6, 6))
+      pngGens      = take 5 generations
+      aliveFns     = [ (`peek` w) | w <- pngGens ]
+  createDirectoryIfMissing True outDir
+  mapM_
+    (\(n, aliveFn) -> renderLifeGrid (outDir ++ "/life-gen" ++ show n ++ ".png") (fst window) (snd window) aliveFn)
+    (zip [0 :: Int ..] aliveFns)
+  renderLifeStrip (outDir ++ "/life-strip.png") (fst window) (snd window) aliveFns
+  putStrLn ""
+  putStrLn ("PNGs written to " ++ outDir ++ "/life-gen0.png .. life-gen4.png, and life-strip.png")
+
 -- ---------------------------------------------------------------
 -- * Part 2: diffusion over polygon geometry
 -- ---------------------------------------------------------------
@@ -198,6 +218,21 @@ touches = Predicate (\(a, b) -> intersects (zonePoly a) (zonePoly b))
 adjacent :: Predicate (Zone, Zone)
 adjacent = notSelf <> touches
 
+-- | A zone's bounding box, in plain @(minX, minY, maxX, maxY)@ form --
+-- via TerraHS's own 'envelope', the same function 'intersects' uses
+-- internally, so what gets drawn matches what the adjacency predicate
+-- actually tested.
+zoneBox :: Zone -> (Double, Double, Double, Double)
+zoneBox z = (bboxMinX b, bboxMinY b, bboxMaxX b, bboxMaxY b)
+  where
+    b = envelope (zonePoly z)
+
+-- | The smallest box covering every zone, for sizing the PNG canvas.
+canvasBBox :: (Double, Double, Double, Double)
+canvasBBox = (bboxMinX b, bboxMinY b, bboxMaxX b, bboxMaxY b)
+  where
+    b = foldr1 union (map (envelope . zonePoly) zones)
+
 -- | The diffusion rule: a zone is infected next turn if it already is,
 -- or if any zone adjacent to it (per 'adjacent' above) is infected
 -- now. Same shape as 'lifeRule' -- 'extract' for "me", 'peek' for
@@ -253,6 +288,19 @@ runDiffusionDemo = do
              ++ show infectedN ++ " infected (via 'values', same as any TerraHS Coverage).")
   putStrLn ("Sanity: no zone id is lost or duplicated in the bridge: "
              ++ show (sort (nub (map zoneId (domain finalCov))) == sort (map zoneId zones)))
+
+  -- PNGs: each zone drawn at its real geometric position (via
+  -- 'envelope'), red once infected -- one per time step, plus a strip
+  -- with all of them side by side.
+  let pngSteps  = take 5 steps
+      frameOf :: Store Zone Bool -> [((Double, Double, Double, Double), Bool)]
+      frameOf w = [ (zoneBox z, peek z w) | z <- zones ]
+  mapM_
+    (\(n, w) -> renderZones (outDir ++ "/diffusion-t" ++ show n ++ ".png") canvasBBox (frameOf w))
+    (zip [0 :: Int ..] pngSteps)
+  renderZonesStrip (outDir ++ "/diffusion-strip.png") canvasBBox (map frameOf pngSteps)
+  putStrLn ""
+  putStrLn ("PNGs written to " ++ outDir ++ "/diffusion-t0.png .. diffusion-t4.png, and diffusion-strip.png")
 
 main :: IO ()
 main = do
