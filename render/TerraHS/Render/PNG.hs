@@ -146,7 +146,7 @@ coveragePixel color (BBox cx0 _ _ cy1) frame px py =
 -- pass before the exact test runs -- the same two-step pattern
 -- 'TerraHS.Geometry.Topology.crossesPolygon' uses). Where
 -- 'renderCoverageWith' only ever draws rectangles (fine for the
--- synthetic squares in @comonad-ca-demo@, wrong for anything with a
+-- synthetic squares in @diffusion-demo@\/@fire-demo@, wrong for anything with a
 -- real, irregular boundary -- a coastline, an administrative border),
 -- this draws the actual shape. No border is drawn (tracing a real
 -- boundary pixel-by-pixel this way, for a polygon with tens of

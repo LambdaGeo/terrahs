@@ -18,6 +18,11 @@ module TerraHS.CA
   ( -- * Neighbourhoods
     neighborValues
   , countNeighbors
+    -- * Building adjacency predicates
+  , notSelf
+  , touchesVia
+    -- * Unbounded integer grids
+  , moore8
     -- * Stepping
   , stepCA
   , runCA
@@ -46,6 +51,25 @@ countNeighbors :: Eq e => Predicate (e, e) -> [e] -> (s -> Bool) -> Store e s ->
 countNeighbors adjacent universe isOfInterest w =
   length (filter isOfInterest (neighborValues adjacent universe w))
 
+-- | Excludes a domain element from counting as its own neighbour --
+-- combine with a spatial (or any other) adjacency test via
+-- 'Predicate''s 'Monoid' instance ('<>' is logical AND) to build the
+-- adjacency predicate a model needs, e.g.
+-- @notSelf \<\> touchesVia zonePoly intersects@. Generic over any
+-- 'Eq' domain, not tied to any particular model.
+notSelf :: Eq e => Predicate (e, e)
+notSelf = Predicate (\(a, b) -> a /= b)
+
+-- | Lifts a binary relation on some value projected out of the
+-- domain -- typically a spatial predicate like
+-- 'TerraHS.Geometry.Topology.intersects', projected via a field like
+-- @zonePoly@ -- into a 'Predicate' over pairs of domain elements.
+-- Doesn't depend on 'TerraHS.Geometry' itself (the relation is passed
+-- in, not imported), keeping @terrahs-ca@ free of a dependency on the
+-- core @terrahs@ library.
+touchesVia :: (e -> g) -> (g -> g -> Bool) -> Predicate (e, e)
+touchesVia project rel = Predicate (\(a, b) -> rel (project a) (project b))
+
 -- | One step of a cellular automaton: the transition rule, applied to
 -- every cell of the world at once via 'Control.Comonad.extend'. The
 -- rule itself decides what "neighbourhood" means for that model,
@@ -67,3 +91,14 @@ runCA rule = iterate (stepCA rule)
 -- @initial@ -- but 'Store' always needs one).
 seedCA :: (e -> s) -> e -> Store e s
 seedCA = store
+
+-- | The eight Moore neighbours of a coordinate on an unbounded
+-- @(Int, Int)@ grid. A different shape of neighbourhood than
+-- 'neighborValues': there's no finite domain to search on an infinite
+-- grid, so the neighbourhood is computed directly from the
+-- coordinates instead of filtered from a universe list -- the same
+-- role for a Life-like grid automaton that 'neighborValues' plays for
+-- a finite, geometrically-adjacent domain.
+moore8 :: (Int, Int) -> [(Int, Int)]
+moore8 (x, y) =
+  [ (x + dx, y + dy) | dx <- [-1, 0, 1], dy <- [-1, 0, 1], (dx, dy) /= (0, 0) ]

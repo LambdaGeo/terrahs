@@ -54,61 +54,72 @@ municipality's name *and* its official area, both straight from the
 cabal run ibge-road-join-demo
 ```
 
-## `comonad-ca-demo`
+## Cellular automata: `life-demo`, `diffusion-demo`, `fire-demo`
 
 The cellular-automata / dynamic-spatial-model pattern from the paper
 *"Modelos dinâmicos espaciais em programação funcional"* (Costa et
 al., WORCAP/INPE), reformulated as a co-Kleisli function over a
 comonad (`Control.Comonad.Store`, from the `comonad` package) instead
-of the paper's hand-written neighbourhood-filtering recursion. The
-stepping-and-neighbourhood machinery itself lives in `TerraHS.CA`, its
-own library component (`terrahs-ca`) — the same role a
-`CellularAutomaton` base class plays in an object-oriented framework
-(`neighborValues`, `stepCA` = `extend`, `runCA` = the paper's `sim`
-replaced by `iterate`, `seedCA` = `store`), except there's no class to
-subclass: a model here is just a domain, an adjacency `Predicate`, and
-a rule function. Three models share it, all self-checked against an
-independently known or hand-traced result rather than just printed:
+of the paper's hand-written neighbourhood-filtering recursion. Three
+models share the same stepping-and-neighbourhood machinery, so — like
+`ibge-road-join-demo` sitting alongside `road-city-join-demo` rather
+than inside it — each gets its own executable rather than all three
+being read together as one file:
 
-* Conway's Game of Life on an infinite grid — a glider, checked
-  against the textbook fact that it reproduces itself shifted by
-  `(+1,+1)` after 4 generations.
-* A diffusion/contamination model over polygon geometry, using
-  TerraHS's own `intersects` as the adjacency predicate (composed with
-  a "not myself" `Predicate` via its `Monoid` instance — the
-  `Data.Functor.Contravariant` composition piece the paper's spatial
-  model called for), over six synthetic squares laid out so the spread
-  is gradual and hand-traceable, checked against a BFS worked out by
+* **`life-demo`** — Conway's Game of Life on an infinite grid: a
+  glider, checked against the textbook fact that it reproduces itself
+  shifted by `(+1,+1)` after 4 generations.
+* **`diffusion-demo`** — a diffusion/contamination model over polygon
+  geometry, using TerraHS's own `intersects` as the adjacency
+  predicate over six synthetic squares laid out so the spread is
+  gradual and hand-traceable, checked against a BFS worked out by
   hand.
-* A forest-fire model (forest / burning / burned) over that same
-  six-square domain and the same adjacency — only the rule and the
-  state type differ from the diffusion model, checked against a
-  hand-traced burn sequence (the fire front trails one step behind
-  where the diffusion would already have spread, since a burning zone
-  only sets its neighbours alight the step before it burns out).
-
-It also bridges both ways between `Store` and TerraHS's own
-`Coverage` (`storeAt`, `storeToCoverage`, and `fromPairs` for the
-render-facing direction — the same core combinator `road-city-join-demo`
-uses to build a coverage from loaded shapefile data), so the comonadic
-simulation step is a drop-in replacement for the "decide next state
-per cell" step of a TerraHS model, not a separate universe. The
-example itself only depends on TerraHS as a library — none of this
-lives in the core package.
-
-Besides the text output, it renders each run as PNGs (via
-`TerraHS.Render.PNG`, another library component — `JuicyPixels`, pure
-Haskell, no FFI — generic over any `Coverage a v` where `a` is a
-`Geometry`, not tied to this example's `Zone` type) into
-`examples/comonad-ca-demo/out/` (not checked in — regenerated on every
-run): one frame per generation/time step plus a side-by-side strip,
-for the Game of Life grid, the diffusion zones, and the fire zones —
-all drawn at their real geometric position, via `envelope`, not a
-schematic.
+* **`fire-demo`** — a forest-fire model (forest / burning / burned)
+  over that same six-square domain and the same adjacency as
+  `diffusion-demo` — only the rule and the state type differ, checked
+  against a hand-traced burn sequence (the fire front trails one step
+  behind where the diffusion would already have spread, since a
+  burning zone only sets its neighbours alight the step before it
+  burns out).
 
 ```sh
-cabal run comonad-ca-demo
+cabal run life-demo
+cabal run diffusion-demo
+cabal run fire-demo
 ```
+
+**What they share, and where it lives.** The stepping/neighbourhood
+machinery is `TerraHS.CA`, its own library component (`terrahs-ca`) —
+the same role a `CellularAutomaton` base class plays in an
+object-oriented framework (`neighborValues`, `stepCA` = `extend`,
+`runCA` = the paper's `sim` replaced by `iterate`, `seedCA` = `store`),
+except there's no class to subclass: a model is just a domain, an
+adjacency `Predicate`, and a rule function. It also holds two small
+generic pieces for *building* that predicate — `notSelf` (a domain
+element is never its own neighbour) and `touchesVia` (lifts any binary
+relation on a projected value, typically a spatial predicate like
+`intersects`, into a `Predicate` over pairs of domain elements) — and
+`moore8`, the eight-neighbour offsets for an unbounded integer grid,
+which `life-demo` uses in place of `neighborValues` (there's no finite
+domain to search on an infinite board).
+
+`diffusion-demo` and `fire-demo` additionally share one *world*: the
+six-zone polygon domain and its adjacency predicate live in
+`examples/common/ZoneWorld.hs` (not its own library — it's this pair
+of demos' shared fixture, not reusable machinery), along with
+`zoneCoverage`, turning either model's `Store` state into a plain
+`Coverage Polygon v` for rendering. `examples/common/StoreBridge.hs`
+holds the two-way bridge between `Store` and TerraHS's own `Coverage`
+(`storeAt`, `storeToCoverage`) — fully generic, no dependency on
+`Zone` at all, usable by any comonadic model that also wants to talk
+to the rest of TerraHS as a `Coverage`.
+
+Besides the text output, each renders its run as PNGs (via
+`TerraHS.Render.PNG`, another library component — `JuicyPixels`, pure
+Haskell, no FFI) into its own `out/` directory (not checked in —
+regenerated on every run): one frame per generation/time step plus a
+side-by-side strip (`life-demo`, `diffusion-demo`), all drawn at their
+real geometric position, via `envelope`, not a schematic.
 
 ## `ibge-map-demo`
 
@@ -119,7 +130,7 @@ each municipality's real shape, testing every pixel against it with
 `pointInPolygon`. A bounding-box render would draw nothing but
 overlapping rectangles for a real, irregular coastline — so this is
 the first example that needs true polygon-shape rendering, not the
-synthetic squares `comonad-ca-demo` gets away with.
+synthetic squares `diffusion-demo`/`fire-demo` get away with.
 
 That's also what makes it a demonstration of
 `TerraHS.Geometry.Simplify` (Ramer-Douglas-Peucker line/polygon

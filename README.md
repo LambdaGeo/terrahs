@@ -63,9 +63,13 @@ The library serves two purposes at once:
   neighbourhoods and time stepping over a `Control.Comonad.Store`
   comonad, in the spirit of a `CellularAutomaton` base class but
   without a class to subclass — a model is just a domain, an adjacency
-  `Predicate`, and a rule function. `examples/comonad-ca-demo` builds
-  three models on it (Conway's Game of Life, a diffusion/contamination
-  spread, and a forest-fire model), all bridging both ways with
+  `Predicate`, and a rule function — plus small generic helpers for
+  building that predicate (`notSelf`, `touchesVia`) and for an
+  unbounded integer grid's neighbourhood (`moore8`). Three examples
+  build models on it: `life-demo` (Conway's Game of Life),
+  `diffusion-demo` (a diffusion/contamination spread), and `fire-demo`
+  (a forest-fire model) — the latter two sharing one polygon world
+  (`examples/common/ZoneWorld.hs`), all bridging both ways with
   `Coverage`. `terrahs-ca` and the PNG renderer below are kept as
   their own components, not the core `library` — reading a shapefile
   or running the map algebra never pulls in `comonad`, `contravariant`
@@ -74,12 +78,12 @@ The library serves two purposes at once:
   `terrahs-render`, via `JuicyPixels`, pure Haskell/no FFI) draws any
   `Coverage a v` (`a` a `Geometry`) at its real geometric position, or
   a plain `(Int, Int) -> Bool` grid — single frames or side-by-side
-  strips of a whole run. Used by `comonad-ca-demo` to render its three
-  models; not part of the core library, for the same reason as
-  `terrahs-ca`. `renderPolygonFillWith` fills each polygon's real
-  shape (via `pointInPolygon`), not just its bounding box —
-  `examples/ibge-map-demo` uses it to plot the real IBGE Maranhão
-  municipal map.
+  strips of a whole run. Used by `life-demo`/`diffusion-demo`/
+  `fire-demo` to render their runs; not part of the core library, for
+  the same reason as `terrahs-ca`. `renderPolygonFillWith` fills each
+  polygon's real shape (via `pointInPolygon`), not just its bounding
+  box — `examples/ibge-map-demo` uses it to plot the real IBGE
+  Maranhão municipal map.
 
 ## Project layout
 
@@ -120,7 +124,12 @@ terrahs-new/
 │   ├── geojoin-demo/Main.hs
 │   ├── road-city-join-demo/Main.hs
 │   ├── ibge-road-join-demo/Main.hs
-│   ├── comonad-ca-demo/Main.hs
+│   ├── common/                   -- shared by the CA demos below (not its own executable)
+│   │   ├── ZoneWorld.hs           -- the six-zone polygon world diffusion-demo/fire-demo share
+│   │   └── StoreBridge.hs         -- generic Store <-> Coverage bridge
+│   ├── life-demo/Main.hs
+│   ├── diffusion-demo/Main.hs
+│   ├── fire-demo/Main.hs
 │   └── ibge-map-demo/Main.hs
 └── test/
     └── Spec.hs                   -- 32 test cases
@@ -185,16 +194,18 @@ data) to the terminal:
 cabal run terrahs-demo
 ```
 
-**Run the examples** — five more worked demos beyond `terrahs-demo`,
+**Run the examples** — seven more worked demos beyond `terrahs-demo`,
 covering spatial joins (synthetic and real Shapefile data, including
-a real IBGE municipality layer), a comonad-based dynamic spatial
-model, and rendering that same real municipality layer as a PNG map.
+a real IBGE municipality layer), three comonad-based dynamic spatial
+models, and rendering that same real municipality layer as a PNG map.
 See [`examples/README.md`](examples/README.md) for what each one does:
 ```sh
 cabal run geojoin-demo
 cabal run road-city-join-demo
 cabal run ibge-road-join-demo
-cabal run comonad-ca-demo
+cabal run life-demo
+cabal run diffusion-demo
+cabal run fire-demo
 cabal run ibge-map-demo
 ```
 
@@ -318,7 +329,7 @@ consumers of just the library don't pull it in.
   file some Shapefiles ship with, which names the encoding
   explicitly).
 
-**Build verification.** The library, test suite, and all five
+**Build verification.** The library, test suite, and all eight
 executables have been built and run with GHC 9.4.7 (`aeson-2.1.2.1`,
 `binary-0.8.9.1`, `random-1.2.1.1`, `text-2.0.2`, all other
 dependencies from GHC's boot packages). All 32 test cases pass. Two

@@ -1,10 +1,10 @@
 -- | ibge-map-demo: plots the real IBGE Malha Municipal (Maranhao,
 -- 2025) as a PNG -- using 'TerraHS.Render.PNG.renderPolygonFillWith'
 -- to draw each municipality's actual shape (via 'pointInPolygon'),
--- not just its bounding box like 'examples/comonad-ca-demo' does for
--- its synthetic squares. That distinction matters here: a bounding
--- box would draw nothing but overlapping rectangles for a real,
--- irregular coastline.
+-- not just its bounding box like 'examples/diffusion-demo' and
+-- 'examples/fire-demo' do for their synthetic squares. That
+-- distinction matters here: a bounding box would draw nothing but
+-- overlapping rectangles for a real, irregular coastline.
 --
 -- The interesting part is what it costs, and what
 -- 'TerraHS.Geometry.Simplify.simplifyPolygon' (Ramer-Douglas-Peucker)
