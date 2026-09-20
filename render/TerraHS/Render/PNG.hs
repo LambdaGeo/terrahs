@@ -31,12 +31,14 @@
 -- side) version, since a simulation's whole run is usually more
 -- useful to look at than any single step.
 module TerraHS.Render.PNG
-  ( -- * Coverage of geometry -> PNG
+  ( -- * Coverage of geometry -> PNG (bounding box, cheap and approximate)
     renderCoverage
   , renderCoverageSteps
   , renderCoverageWith
   , renderCoverageStepsWith
   , coverageBBox
+    -- * Coverage of Polygon -> PNG (real shape)
+  , renderPolygonFillWith
     -- * Integer grid -> PNG
   , renderGrid
   , renderGridSteps
@@ -48,6 +50,10 @@ import Codec.Picture (PixelRGB8 (..), generateImage, writePng)
 
 import TerraHS.Algebra.Coverage (Coverage, domain, covFun)
 import TerraHS.Geometry (Geometry (..), BBox (..), union)
+import TerraHS.Geometry.Coord (Coord (..))
+import TerraHS.Geometry.Point (Point (..))
+import TerraHS.Geometry.Polygon (Polygon)
+import TerraHS.Geometry.Topology (pointInPolygon)
 
 -- * Coverage of geometry -> PNG
 
@@ -132,6 +138,40 @@ coveragePixel color (BBox cx0 _ _ cy1) frame px py =
     borderPx = 1.5 / scalePx
     inBand v' lo hi = v' - lo < borderPx || hi - v' < borderPx
     onBorder (BBox minX minY maxX maxY) = inBand x minX maxX || inBand y minY maxY
+
+-- | Renders a @'Coverage' 'Polygon' v@ at its /real/ shape, not just
+-- its bounding box: every pixel is tested with 'pointInPolygon' (ray
+-- casting, exact) against whichever polygon's bounding box contains
+-- it first (the cheap broad-phase filter every polygon already has to
+-- pass before the exact test runs -- the same two-step pattern
+-- 'TerraHS.Geometry.Topology.crossesPolygon' uses). Where
+-- 'renderCoverageWith' only ever draws rectangles (fine for the
+-- synthetic squares in @comonad-ca-demo@, wrong for anything with a
+-- real, irregular boundary -- a coastline, an administrative border),
+-- this draws the actual shape. No border is drawn (tracing a real
+-- boundary pixel-by-pixel this way, for a polygon with tens of
+-- thousands of vertices, is the expensive part -- filling is cheap by
+-- comparison since most pixels reject on the bounding box alone);
+-- give adjacent elements visibly different colours instead.
+renderPolygonFillWith :: (v -> PixelRGB8) -> FilePath -> BBox -> Coverage Polygon v -> IO ()
+renderPolygonFillWith color path canvas cov = writePng path img
+  where
+    (w, h) = canvasPixelSize canvas
+    frame  = [ (envelope poly, poly, covFun cov poly) | poly <- domain cov ]
+    img    = generateImage (polygonPixel color canvas frame) w h
+
+polygonPixel :: (v -> PixelRGB8) -> BBox -> [(BBox, Polygon, v)] -> Int -> Int -> PixelRGB8
+polygonPixel color (BBox cx0 _ _ cy1) frame px py =
+  case [ v | (b, poly, v) <- frame, inside b, pointInPolygon here poly ] of
+    (v : _) -> color v
+    []      -> PixelRGB8 255 255 255
+  where
+    -- Pixel (px, py) back to data coordinates -- y is flipped, since
+    -- image row 0 is the top but geometry y grows upward.
+    x    = cx0 + fromIntegral px / scalePx
+    y    = cy1 - fromIntegral py / scalePx
+    here = Point (Coord x y)
+    inside (BBox minX minY maxX maxY) = x >= minX && x <= maxX && y >= minY && y <= maxY
 
 -- * Integer grid -> PNG
 

@@ -9,6 +9,7 @@
 module TerraHS
   ( module TerraHS.Geometry
   , module TerraHS.Geometry.Topology
+  , module TerraHS.Geometry.Simplify
   , module TerraHS.IO.WKT
   , module TerraHS.IO.GeoJSON
   , module TerraHS.IO.Shapefile
@@ -21,6 +22,7 @@ module TerraHS
 
 import TerraHS.Geometry
 import TerraHS.Geometry.Topology
+import TerraHS.Geometry.Simplify
 import TerraHS.IO.WKT
 import TerraHS.IO.GeoJSON
 import TerraHS.IO.Shapefile

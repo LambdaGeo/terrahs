@@ -34,6 +34,14 @@ The library serves two purposes at once:
   (via point-to-segment distance), point-in-polygon (via ray
   casting), and line-crosses-polygon (via segment intersection)
   predicates.
+- **Simplification** — `TerraHS.Geometry.Simplify`, the
+  Ramer-Douglas-Peucker algorithm for lines and polygons: drops
+  vertices that don't bend a shape by more than a given tolerance.
+  Pure arithmetic on coordinates, no new dependency, part of the core
+  library like any other geometry operation. `examples/ibge-map-demo`
+  uses it to simplify a real municipality layer to the resolution it's
+  about to be rendered at, with real before/after vertex counts and
+  timings.
 - **File I/O** — read and write WKT and GeoJSON; read ESRI Shapefiles
   (`.shp` + `.dbf`, UTF-8 or Latin-1 attribute text), pairing geometry
   with attributes. `TerraHS.IO.Vector` also has typed helpers
@@ -68,7 +76,10 @@ The library serves two purposes at once:
   a plain `(Int, Int) -> Bool` grid — single frames or side-by-side
   strips of a whole run. Used by `comonad-ca-demo` to render its three
   models; not part of the core library, for the same reason as
-  `terrahs-ca`.
+  `terrahs-ca`. `renderPolygonFillWith` fills each polygon's real
+  shape (via `pointInPolygon`), not just its bounding box —
+  `examples/ibge-map-demo` uses it to plot the real IBGE Maranhão
+  municipal map.
 
 ## Project layout
 
@@ -109,9 +120,10 @@ terrahs-new/
 │   ├── geojoin-demo/Main.hs
 │   ├── road-city-join-demo/Main.hs
 │   ├── ibge-road-join-demo/Main.hs
-│   └── comonad-ca-demo/Main.hs
+│   ├── comonad-ca-demo/Main.hs
+│   └── ibge-map-demo/Main.hs
 └── test/
-    └── Spec.hs                   -- 27 test cases
+    └── Spec.hs                   -- 32 test cases
 ```
 
 ## Installation
@@ -173,16 +185,17 @@ data) to the terminal:
 cabal run terrahs-demo
 ```
 
-**Run the examples** — four more worked demos beyond `terrahs-demo`,
+**Run the examples** — five more worked demos beyond `terrahs-demo`,
 covering spatial joins (synthetic and real Shapefile data, including
-a real IBGE municipality layer) and a comonad-based dynamic spatial
-model. See [`examples/README.md`](examples/README.md) for what each
-one does:
+a real IBGE municipality layer), a comonad-based dynamic spatial
+model, and rendering that same real municipality layer as a PNG map.
+See [`examples/README.md`](examples/README.md) for what each one does:
 ```sh
 cabal run geojoin-demo
 cabal run road-city-join-demo
 cabal run ibge-road-join-demo
 cabal run comonad-ca-demo
+cabal run ibge-map-demo
 ```
 
 **Explore interactively in a REPL:**
@@ -305,10 +318,10 @@ consumers of just the library don't pull it in.
   file some Shapefiles ship with, which names the encoding
   explicitly).
 
-**Build verification.** The library, test suite, and all four
+**Build verification.** The library, test suite, and all five
 executables have been built and run with GHC 9.4.7 (`aeson-2.1.2.1`,
 `binary-0.8.9.1`, `random-1.2.1.1`, `text-2.0.2`, all other
-dependencies from GHC's boot packages). All 27 test cases pass. Two
+dependencies from GHC's boot packages). All 32 test cases pass. Two
 real bugs were found and fixed in the process, both while actually
 running the code rather than just reading it:
 

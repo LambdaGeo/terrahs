@@ -109,3 +109,40 @@ schematic.
 ```sh
 cabal run comonad-ca-demo
 ```
+
+## `ibge-map-demo`
+
+Plots the real IBGE Malha Municipal for Maranhão (the same
+`data/ibge/` data `ibge-road-join-demo` reads) as an actual map, not
+just bounding boxes: `TerraHS.Render.PNG.renderPolygonFillWith` fills
+each municipality's real shape, testing every pixel against it with
+`pointInPolygon`. A bounding-box render would draw nothing but
+overlapping rectangles for a real, irregular coastline — so this is
+the first example that needs true polygon-shape rendering, not the
+synthetic squares `comonad-ca-demo` gets away with.
+
+That's also what makes it a demonstration of
+`TerraHS.Geometry.Simplify` (Ramer-Douglas-Peucker line/polygon
+simplification, in the core library — pure arithmetic on coordinates,
+no new dependency). Rendering the *original* geometry — 810,584
+vertices across 280 polygon parts, one municipality alone
+(Amarante do Maranhão) has over 17,000 — takes tens of seconds, almost
+all of it `pointInPolygon` ray-casting against vertices that, at the
+resolution a ~550×740px PNG can even show, are individually invisible:
+a bend smaller than half a render pixel cannot change which colour a
+pixel ends up. Simplifying to that tolerance first
+(`epsilon = 1 / (2 * scalePx)`) removes exactly the vertices that
+could never have mattered to this render — down to 10,133 vertices,
+a 98.7% reduction — and the two images that come out are visually
+indistinguishable, while the render itself goes from ~29s to ~0.45s
+(a ~65x speedup). Real numbers from real government data, not a
+synthetic benchmark, for the general lesson: simplify to the
+resolution you're about to use, before the costly operation, not just
+for rendering.
+
+Writes both PNGs to `examples/ibge-map-demo/out/` (not checked in —
+regenerated on every run) so they can be compared side by side.
+
+```sh
+cabal run ibge-map-demo
+```

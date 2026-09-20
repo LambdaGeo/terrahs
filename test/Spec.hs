@@ -116,6 +116,27 @@ cases =
   , ("Topology: crossesPolygon — a line entirely outside the square doesn't cross it",
       let Just ln = mkLine [Coord 10 10, Coord 20 20]
       in not (crossesPolygon ln square))
+
+  -- Simplify: Ramer-Douglas-Peucker. A gentle bump (0.05 off the
+  -- straight line) either disappears or survives depending only on
+  -- whether the tolerance is above or below that 0.05 -- the whole
+  -- point of the algorithm, made hand-checkable with one number.
+  , ("Simplify: simplifyCoords drops a bump smaller than epsilon, keeping only the endpoints",
+      let bumpy = [Coord 0 0, Coord 1 0, Coord 2 0.05, Coord 3 0, Coord 4 0]
+      in simplifyCoords 0.1 bumpy == [Coord 0 0, Coord 4 0])
+  , ("Simplify: simplifyCoords keeps a bump larger than epsilon",
+      let bumpy = [Coord 0 0, Coord 1 0, Coord 2 0.05, Coord 3 0, Coord 4 0]
+      in length (simplifyCoords 0.01 bumpy) > 2)
+  , ("Simplify: simplifyCoords always keeps the first and last point, however large epsilon is",
+      let wiggly = [Coord 0 0, Coord 1 5, Coord 2 (-3), Coord 3 8, Coord 4 1]
+          simplified = simplifyCoords 1000 wiggly
+      in head simplified == Coord 0 0 && last simplified == Coord 4 1)
+  , ("Simplify: simplifyPolygon drops a redundant point sitting exactly on an edge",
+      let Just square5 = mkPolygon [Coord 0 0, Coord 2 0, Coord 4 0, Coord 4 4, Coord 0 4]
+      in length (polygonRing (simplifyPolygon 0 square5)) < length (polygonRing square5))
+  , ("Simplify: simplifyPolygon preserves the area when it only drops redundant points",
+      let Just square5 = mkPolygon [Coord 0 0, Coord 2 0, Coord 4 0, Coord 4 4, Coord 0 4]
+      in approxEq (area (simplifyPolygon 0 square5)) (area square5))
   ]
 
 main :: IO ()
