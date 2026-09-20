@@ -71,3 +71,12 @@ executable terrahs-demo
         base   >= 4.14 && < 5,
         random >= 1.1  && < 1.3,
         terrahs
+
+executable geojoin-demo
+    import:           warnings
+    hs-source-dirs:   app
+    main-is:          GeoJoin.hs
+    default-language: Haskell2010
+    build-depends:
+        base >= 4.14 && < 5,
+        terrahs
