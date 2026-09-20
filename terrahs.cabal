@@ -178,6 +178,17 @@ executable fire-demo
         terrahs-ca,
         terrahs-render
 
+executable render-demo
+    import:           warnings
+    hs-source-dirs:   examples/render-demo
+    main-is:          Main.hs
+    default-language: Haskell2010
+    build-depends:
+        base      >= 4.14 && < 5,
+        directory >= 1.3  && < 2,
+        terrahs,
+        terrahs-render
+
 executable ibge-map-demo
     import:           warnings
     hs-source-dirs:   examples/ibge-map-demo

@@ -121,6 +121,25 @@ regenerated on every run): one frame per generation/time step plus a
 side-by-side strip (`life-demo`, `diffusion-demo`), all drawn at their
 real geometric position, via `envelope`, not a schematic.
 
+## `render-demo`
+
+The straightforward recipe: load a shapefile of real municipalities,
+draw it, save a PNG. Reads the same real IBGE Malha Municipal for
+Maranhão (`data/ibge/`, 217 municipalities) that `ibge-road-join-demo`
+and `ibge-map-demo` do. `simplifyPolygon` still runs here, quietly, as
+just one more step in the pipeline — skipping it would make this take
+tens of seconds instead of under one, since real municipal boundaries
+have far more detail than a small PNG can show — but unlike
+`ibge-map-demo`, this doesn't render the *original* geometry at all,
+measure anything, or compare the two. This is the version to reach for
+when all that's wanted is the map; `ibge-map-demo` below is the
+side-by-side original-vs-simplified comparison, with real numbers,
+that justifies this step in the first place.
+
+```sh
+cabal run render-demo
+```
+
 ## `ibge-map-demo`
 
 Plots the real IBGE Malha Municipal for Maranhão (the same

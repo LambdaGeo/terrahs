@@ -130,6 +130,7 @@ terrahs-new/
 │   ├── life-demo/Main.hs
 │   ├── diffusion-demo/Main.hs
 │   ├── fire-demo/Main.hs
+│   ├── render-demo/Main.hs
 │   └── ibge-map-demo/Main.hs
 └── test/
     └── Spec.hs                   -- 32 test cases
@@ -194,11 +195,12 @@ data) to the terminal:
 cabal run terrahs-demo
 ```
 
-**Run the examples** — seven more worked demos beyond `terrahs-demo`,
+**Run the examples** — eight more worked demos beyond `terrahs-demo`,
 covering spatial joins (synthetic and real Shapefile data, including
 a real IBGE municipality layer), three comonad-based dynamic spatial
-models, and rendering that same real municipality layer as a PNG map.
-See [`examples/README.md`](examples/README.md) for what each one does:
+models, and rendering a shapefile as a PNG map (synthetic data first,
+then the same recipe at real-world scale). See
+[`examples/README.md`](examples/README.md) for what each one does:
 ```sh
 cabal run geojoin-demo
 cabal run road-city-join-demo
@@ -206,6 +208,7 @@ cabal run ibge-road-join-demo
 cabal run life-demo
 cabal run diffusion-demo
 cabal run fire-demo
+cabal run render-demo
 cabal run ibge-map-demo
 ```
 
@@ -329,7 +332,7 @@ consumers of just the library don't pull it in.
   file some Shapefiles ship with, which names the encoding
   explicitly).
 
-**Build verification.** The library, test suite, and all eight
+**Build verification.** The library, test suite, and all nine
 executables have been built and run with GHC 9.4.7 (`aeson-2.1.2.1`,
 `binary-0.8.9.1`, `random-1.2.1.1`, `text-2.0.2`, all other
 dependencies from GHC's boot packages). All 32 test cases pass. Two

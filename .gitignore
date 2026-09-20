@@ -19,4 +19,5 @@ cabal.project.local~
 examples/life-demo/out/
 examples/diffusion-demo/out/
 examples/fire-demo/out/
+examples/render-demo/out/
 examples/ibge-map-demo/out/
