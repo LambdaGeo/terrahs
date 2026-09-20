@@ -20,6 +20,7 @@
 module TerraHS.Algebra.Coverage
   ( Coverage
   , newCov
+  , fromPairs
   , evaluate
   , domain
   , numElems
@@ -47,6 +48,23 @@ data Coverage a b = Coverage (a -> b) [a]
 -- of each element of the domain.
 newCov :: [a] -> (a -> b) -> Coverage a b
 newCov dom f = Coverage f dom
+
+-- | Builds a coverage from a list of (domain element, value) pairs —
+-- the shape data most naturally comes in once it's been read from a
+-- file (a shapefile record's geometry paired with one of its
+-- attributes, say). A thin convenience over 'newCov': every domain
+-- element must be present as a key, since the resulting function
+-- errors on one that isn't (mirroring 'evaluate', which reports a
+-- missing element with 'Nothing' instead — use that if a partial
+-- function isn't acceptable for your use).
+--
+-- >>> values (fromPairs [(1::Int, "a"), (2, "b")])
+-- ["a","b"]
+fromPairs :: Eq a => [(a, b)] -> Coverage a b
+fromPairs prs = newCov (map fst prs) lookupOrError
+  where
+    lookupOrError x =
+      maybe (error "fromPairs: domain element not found in the pairs given") id (lookup x prs)
 
 -- | The coverage's domain — the geographic elements it covers.
 domain :: Coverage a b -> [a]

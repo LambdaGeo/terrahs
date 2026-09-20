@@ -13,8 +13,13 @@
 -- primitives that already exist: a standard 2D segment-intersection
 -- test, checked against every edge of the polygon, plus
 -- 'pointInPolygon' as a shortcut for the case where a road vertex
--- itself lies inside. It's a reasonable candidate to promote into the
--- library proper if this pattern comes up again.
+-- itself lies inside.
+--
+-- Shapefile-to-'Coverage' plumbing goes through 'asPolygonPairs' \/
+-- 'asLinePairs' and 'attrAs' (from "TerraHS.IO.Vector") and
+-- 'fromPairs' (from "TerraHS.Algebra.Coverage") — the three
+-- additions that replace what used to be a hand-rolled
+-- pattern-match-and-lookup dance in an earlier version of this file.
 module Main (main) where
 
 import Data.List (intercalate)
@@ -58,31 +63,28 @@ crossesPolygon line poly =
     ring      = polygonRing poly
     polyEdges = zip ring (drop 1 ring)
 
--- * Loading the two layers
+-- * Loading the two layers straight into Coverages
 
--- | Pulls the (name, polygon) pairs out of a list of features whose
--- geometry is known to be polygons and whose attribute table has a
--- @NAME@ field — errors out on anything else, since this demo's
--- Shapefiles are known-good by construction.
-asPolygons :: [VectorFeature] -> [(String, Polygon)]
-asPolygons feats =
-  [ (name, poly)
-  | f <- feats
-  , AGPolygon poly <- featureGeometries f
-  , DbfText name <- [lookupAttr "NAME" f]
-  ]
+-- | A shapefile of municipality polygons, keyed by their @NAME@
+-- attribute — one line, no manual 'AnyGeometry' pattern matching or
+-- 'DbfValue' unwrapping.
+loadCities :: FilePath -> IO (Either String (Coverage Polygon String))
+loadCities path = fmap toCoverage <$> readVectorFile path
+  where
+    toCoverage feats =
+      fromPairs [ (poly, name)
+                | (poly, attrs) <- asPolygonPairs feats
+                , Just name <- [attrAs "NAME" attrs]
+                ]
 
-asLines :: [VectorFeature] -> [(String, Line)]
-asLines feats =
-  [ (name, l)
-  | f <- feats
-  , AGLine l <- featureGeometries f
-  , DbfText name <- [lookupAttr "NAME" f]
-  ]
-
-lookupAttr :: String -> VectorFeature -> DbfValue
-lookupAttr k f =
-  maybe (error ("missing attribute " ++ k)) id (lookup k (featureAttributes f))
+-- | Same idea for the road layer — a @(name, Line)@ per road is
+-- enough here, since roads are what we test *against* (the `ref`
+-- side of 'select'), not what we build a 'Coverage' domain out of.
+loadRoads :: FilePath -> IO (Either String [(String, Line)])
+loadRoads path = fmap toPairs <$> readVectorFile path
+  where
+    toPairs feats =
+      [ (name, l) | (l, attrs) <- asLinePairs feats, Just name <- [attrAs "NAME" attrs] ]
 
 main :: IO ()
 main = do
@@ -91,31 +93,20 @@ main = do
   putStrLn "== road-city-join-demo: which municipalities does each road cross? =="
   putStrLn ""
 
-  citiesResult <- readVectorFile "data/cities.shp"
-  roadsResult  <- readVectorFile "data/roads.shp"
+  citiesResult <- loadCities "data/cities.shp"
+  roadsResult  <- loadRoads  "data/roads.shp"
 
   case (citiesResult, roadsResult) of
     (Left err, _) -> error ("failed to read data/cities.shp: " ++ err)
     (_, Left err) -> error ("failed to read data/roads.shp: " ++ err)
-    (Right cityFeats, Right roadFeats) -> do
-      let cities = asPolygons cityFeats
-          roads  = asLines roadFeats
-
-      putStrLn (show (length cities) ++ " municipalities loaded from data/cities.shp:")
-      mapM_ (\(name, poly) -> putStrLn ("  " ++ name ++ ", area = " ++ show (area poly))) cities
+    (Right citiesCov, Right roads) -> do
+      putStrLn (show (numElems citiesCov) ++ " municipalities loaded from data/cities.shp:")
+      mapM_ (\poly -> putStrLn ("  " ++ covFun citiesCov poly ++ ", area = " ++ show (area poly)))
+            (domain citiesCov)
 
       putStrLn ""
       putStrLn (show (length roads) ++ " roads loaded from data/roads.shp:")
       mapM_ (\(name, l) -> putStrLn ("  " ++ name ++ ", length = " ++ show (lineLength l))) roads
-
-      -- The join itself: a Coverage over the cities (domain =
-      -- polygon, value = its name), 'select'ed per road with
-      -- 'crossesPolygon' as the spatial predicate — the same
-      -- select/compose pattern geojoin-demo uses for
-      -- point-in-polygon, just with a different predicate.
-      let citiesCov :: Coverage Polygon String
-          citiesCov = newCov (map snd cities) (\poly -> maybe "?" id (lookup poly (map swap cities)))
-          swap (n, p) = (p, n)
 
       -- select's predicate has type (a -> ref -> Bool); here that's
       -- (Polygon -> Line -> Bool), so `crossesPolygon` just needs its
