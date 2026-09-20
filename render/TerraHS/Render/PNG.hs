@@ -1,0 +1,153 @@
+-- | Minimal PNG rendering for 'TerraHS.Algebra.Coverage.Coverage'
+-- values and integer grids, using @JuicyPixels@ (pure Haskell, no
+-- FFI -- in keeping with the rest of TerraHS).
+--
+-- This is deliberately its own library component
+-- (@terrahs-render@ in @terrahs.cabal@), not part of the main
+-- @terrahs@ library: rendering pulls in @JuicyPixels@ (and
+-- transitively @zlib@), a real dependency that most uses of TerraHS
+-- (reading a shapefile, running a map-algebra pipeline) have no
+-- reason to carry. Anything that wants PNG output -- an example, a
+-- teaching notebook, a future @terrahs-viewer@ -- depends on
+-- @terrahs-render@ explicitly instead.
+--
+-- Two things it knows how to draw:
+--
+--   * A @'Coverage' a 'Bool'@ where @a@ is a 'Geometry' ('Point',
+--     'Line' or 'Polygon') -- each element drawn at its real
+--     bounding box (via 'envelope', the same function 'intersects'
+--     uses internally), filled by its 'Bool' value. Any coverage of
+--     this shape works: a diffusion/contamination state, a "flooded
+--     or not" layer, a selection from 'select' turned into a mask --
+--     not tied to any one example's domain type.
+--   * A plain @(Int, Int) -> Bool@ grid (no geometry involved) -- for
+--     grid-based cellular automata such as Conway's Game of Life,
+--     where the domain is just integer coordinates.
+--
+-- Each has a single-frame and a multi-frame ("strip", frames side by
+-- side) version, since a simulation's whole run is usually more
+-- useful to look at than any single step.
+module TerraHS.Render.PNG
+  ( -- * Coverage of geometry -> PNG
+    renderCoverage
+  , renderCoverageSteps
+  , coverageBBox
+    -- * Integer grid -> PNG
+  , renderGrid
+  , renderGridSteps
+  ) where
+
+import Codec.Picture (PixelRGB8 (..), generateImage, writePng)
+
+import TerraHS.Algebra.Coverage (Coverage, domain, covFun)
+import TerraHS.Geometry (Geometry (..), BBox (..), union)
+
+-- * Coverage of geometry -> PNG
+
+scalePx :: Double
+scalePx = 80
+
+-- | The smallest box covering every element of a coverage's domain --
+-- a convenient default 'canvas' for 'renderCoverage'\/'renderCoverageSteps'
+-- when the caller doesn't need several frames to share one fixed box.
+coverageBBox :: Geometry a => Coverage a b -> BBox
+coverageBBox cov = foldr1 union (map envelope (domain cov))
+
+-- | Renders one 'Coverage a Bool' as a PNG: each element filled at
+-- its real bounding box, red when its value is 'True' and light grey
+-- otherwise, with a dark border. @canvas@ fixes the box all frames
+-- share (pass the same one across a call to 'renderCoverageSteps' so
+-- frames line up); use 'coverageBBox' for a coverage's own box, or
+-- the union of several via 'TerraHS.Geometry.union' to cover a whole
+-- run.
+renderCoverage :: Geometry a => FilePath -> BBox -> Coverage a Bool -> IO ()
+renderCoverage path canvas cov = writePng path img
+  where
+    (w, h) = canvasPixelSize canvas
+    img    = generateImage (coveragePixel canvas (frameOf cov)) w h
+
+-- | Several time steps of a coverage side by side, in one strip PNG.
+renderCoverageSteps :: Geometry a => FilePath -> BBox -> [Coverage a Bool] -> IO ()
+renderCoverageSteps path canvas covs = writePng path img
+  where
+    (frameW, frameH) = canvasPixelSize canvas
+    gap              = 10
+    img              = generateImage pixelAt (length covs * (frameW + gap) - gap) frameH
+    pixelAt px py
+      | localX >= frameW = PixelRGB8 255 255 255
+      | otherwise         = coveragePixel canvas (frameOf (covs !! frameIdx)) localX py
+      where
+        (frameIdx, localX) = px `divMod` (frameW + gap)
+
+-- | A coverage's elements, reduced to what rendering needs: each
+-- element's bounding box and value.
+frameOf :: Geometry a => Coverage a Bool -> [(BBox, Bool)]
+frameOf cov = [ (envelope e, covFun cov e) | e <- domain cov ]
+
+canvasPixelSize :: BBox -> (Int, Int)
+canvasPixelSize (BBox minX minY maxX maxY) =
+  (round ((maxX - minX) * scalePx), round ((maxY - minY) * scalePx))
+
+coveragePixel :: BBox -> [(BBox, Bool)] -> Int -> Int -> PixelRGB8
+coveragePixel (BBox cx0 _ _ cy1) frame px py =
+  case [ v | (b, v) <- frame, inside b ] of
+    (v : _)
+      | onBorder box' -> PixelRGB8 40 40 40
+      | v             -> PixelRGB8 200 60 60
+      | otherwise     -> PixelRGB8 210 210 220
+      where
+        box' = head [ b | (b, _) <- frame, inside b ]
+    _ -> PixelRGB8 255 255 255
+  where
+    -- Pixel (px, py) back to data coordinates -- y is flipped, since
+    -- image row 0 is the top but geometry y grows upward.
+    x = cx0 + fromIntegral px / scalePx
+    y = cy1 - fromIntegral py / scalePx
+    inside (BBox minX minY maxX maxY) = x >= minX && x <= maxX && y >= minY && y <= maxY
+    borderPx = 1.5 / scalePx
+    inBand v' lo hi = v' - lo < borderPx || hi - v' < borderPx
+    onBorder (BBox minX minY maxX maxY) = inBand x minX maxX || inBand y minY maxY
+
+-- * Integer grid -> PNG
+
+cellPx :: Int
+cellPx = 20
+
+-- | A single generation's pixel function: @(x0, y0)@ is the
+-- top-left cell of the window (in grid coordinates); @alive@ answers
+-- whether a given grid cell is alive.
+gridPixel :: (Int, Int) -> ((Int, Int) -> Bool) -> Int -> Int -> PixelRGB8
+gridPixel (x0, y0) alive px py
+  | onGridLine               = gridLine
+  | alive (x0 + cx, y0 + cy) = black
+  | otherwise                = white
+  where
+    cx = px `div` cellPx
+    cy = py `div` cellPx
+    onGridLine = px `mod` cellPx == 0 || py `mod` cellPx == 0
+    black    = PixelRGB8 20 20 20
+    white    = PixelRGB8 245 245 245
+    gridLine = PixelRGB8 200 200 200
+
+-- | Renders one window of a boolean grid as a PNG.
+renderGrid :: FilePath -> (Int, Int) -> (Int, Int) -> ((Int, Int) -> Bool) -> IO ()
+renderGrid path (x0, y0) (x1, y1) alive = writePng path img
+  where
+    w   = (x1 - x0 + 1) * cellPx
+    h   = (y1 - y0 + 1) * cellPx
+    img = generateImage (gridPixel (x0, y0) alive) w h
+
+-- | Several generations of a boolean grid side by side in one strip
+-- PNG.
+renderGridSteps :: FilePath -> (Int, Int) -> (Int, Int) -> [(Int, Int) -> Bool] -> IO ()
+renderGridSteps path (x0, y0) (x1, y1) frames = writePng path img
+  where
+    frameW = (x1 - x0 + 1) * cellPx
+    frameH = (y1 - y0 + 1) * cellPx
+    gap    = 6
+    img    = generateImage pixelAt (length frames * (frameW + gap) - gap) frameH
+    pixelAt px py
+      | localX >= frameW = PixelRGB8 255 255 255
+      | otherwise         = gridPixel (x0, y0) (frames !! frameIdx) localX py
+      where
+        (frameIdx, localX) = px `divMod` (frameW + gap)

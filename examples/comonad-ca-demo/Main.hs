@@ -32,7 +32,13 @@
 -- This lives entirely as an example that /depends on/ TerraHS -- it
 -- does not touch the core library, and the 'Coverage'-'Store' bridge
 -- functions below ('storeAt', 'storeToCoverage') are local to this
--- file on purpose.
+-- file on purpose. The PNG rendering, on the other hand, lives in
+-- 'TerraHS.Render.PNG' -- its own library component (@terrahs-render@
+-- in @terrahs.cabal@), generic over any @Coverage a Bool@, not
+-- specific to this demo's data. It's "TerraHS" in the sense of being
+-- part of the project and reusable by any future example, just kept
+-- out of the core @terrahs@ library so reading a shapefile doesn't
+-- require pulling in JuicyPixels.
 module Main (main) where
 
 import Control.Comonad (extend, extract)
@@ -42,7 +48,7 @@ import Data.List (intercalate, sort, nub)
 import System.Directory (createDirectoryIfMissing)
 
 import TerraHS
-import Render (renderLifeGrid, renderLifeStrip, renderZones, renderZonesStrip)
+import TerraHS.Render.PNG (renderGrid, renderGridSteps, renderCoverage, renderCoverageSteps)
 
 -- | Where the PNGs land, relative to the repository root (same
 -- convention as the other examples' @dataDir@).
@@ -146,9 +152,9 @@ runLifeDemo = do
       aliveFns     = [ (`peek` w) | w <- pngGens ]
   createDirectoryIfMissing True outDir
   mapM_
-    (\(n, aliveFn) -> renderLifeGrid (outDir ++ "/life-gen" ++ show n ++ ".png") (fst window) (snd window) aliveFn)
+    (\(n, aliveFn) -> renderGrid (outDir ++ "/life-gen" ++ show n ++ ".png") (fst window) (snd window) aliveFn)
     (zip [0 :: Int ..] aliveFns)
-  renderLifeStrip (outDir ++ "/life-strip.png") (fst window) (snd window) aliveFns
+  renderGridSteps (outDir ++ "/life-strip.png") (fst window) (snd window) aliveFns
   putStrLn ""
   putStrLn ("PNGs written to " ++ outDir ++ "/life-gen0.png .. life-gen4.png, and life-strip.png")
 
@@ -218,20 +224,11 @@ touches = Predicate (\(a, b) -> intersects (zonePoly a) (zonePoly b))
 adjacent :: Predicate (Zone, Zone)
 adjacent = notSelf <> touches
 
--- | A zone's bounding box, in plain @(minX, minY, maxX, maxY)@ form --
--- via TerraHS's own 'envelope', the same function 'intersects' uses
--- internally, so what gets drawn matches what the adjacency predicate
--- actually tested.
-zoneBox :: Zone -> (Double, Double, Double, Double)
-zoneBox z = (bboxMinX b, bboxMinY b, bboxMaxX b, bboxMaxY b)
-  where
-    b = envelope (zonePoly z)
-
--- | The smallest box covering every zone, for sizing the PNG canvas.
-canvasBBox :: (Double, Double, Double, Double)
-canvasBBox = (bboxMinX b, bboxMinY b, bboxMaxX b, bboxMaxY b)
-  where
-    b = foldr1 union (map (envelope . zonePoly) zones)
+-- | The smallest box covering every zone, for sizing the PNG canvas
+-- ('TerraHS.Render.PNG.renderCoverage' takes this explicitly so every
+-- frame of a run shares the same canvas and lines up).
+canvasBBox :: BBox
+canvasBBox = foldr1 union (map (envelope . zonePoly) zones)
 
 -- | The diffusion rule: a zone is infected next turn if it already is,
 -- or if any zone adjacent to it (per 'adjacent' above) is infected
@@ -291,14 +288,18 @@ runDiffusionDemo = do
 
   -- PNGs: each zone drawn at its real geometric position (via
   -- 'envelope'), red once infected -- one per time step, plus a strip
-  -- with all of them side by side.
-  let pngSteps  = take 5 steps
-      frameOf :: Store Zone Bool -> [((Double, Double, Double, Double), Bool)]
-      frameOf w = [ (zoneBox z, peek z w) | z <- zones ]
+  -- with all of them side by side. 'renderCoverage' only knows about
+  -- 'Coverage', not about 'Zone', so each step is turned into a plain
+  -- @Coverage Polygon Bool@ first, with 'fromPairs' -- the same core
+  -- combinator 'road-city-join-demo' uses to build a coverage from
+  -- loaded shapefile data.
+  let pngSteps    = take 5 steps
+      polyCoverage :: Store Zone Bool -> Coverage Polygon Bool
+      polyCoverage w = fromPairs [ (zonePoly z, peek z w) | z <- zones ]
   mapM_
-    (\(n, w) -> renderZones (outDir ++ "/diffusion-t" ++ show n ++ ".png") canvasBBox (frameOf w))
+    (\(n, w) -> renderCoverage (outDir ++ "/diffusion-t" ++ show n ++ ".png") canvasBBox (polyCoverage w))
     (zip [0 :: Int ..] pngSteps)
-  renderZonesStrip (outDir ++ "/diffusion-strip.png") canvasBBox (map frameOf pngSteps)
+  renderCoverageSteps (outDir ++ "/diffusion-strip.png") canvasBBox (map polyCoverage pngSteps)
   putStrLn ""
   putStrLn ("PNGs written to " ++ outDir ++ "/diffusion-t0.png .. diffusion-t4.png, and diffusion-strip.png")
 
