@@ -80,3 +80,12 @@ executable geojoin-demo
     build-depends:
         base >= 4.14 && < 5,
         terrahs
+
+executable road-city-join-demo
+    import:           warnings
+    hs-source-dirs:   app
+    main-is:          RoadCityJoin.hs
+    default-language: Haskell2010
+    build-depends:
+        base >= 4.14 && < 5,
+        terrahs
