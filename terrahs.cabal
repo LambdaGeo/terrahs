@@ -72,10 +72,14 @@ executable terrahs-demo
         random >= 1.1  && < 1.3,
         terrahs
 
+-- Worked examples beyond the flagship terrahs-demo, each self-contained
+-- under examples/<name>/ (source data shared from examples/data/). See
+-- examples/README.md for what each one covers.
+
 executable geojoin-demo
     import:           warnings
-    hs-source-dirs:   app
-    main-is:          GeoJoin.hs
+    hs-source-dirs:   examples/geojoin-demo
+    main-is:          Main.hs
     default-language: Haskell2010
     build-depends:
         base >= 4.14 && < 5,
@@ -83,8 +87,8 @@ executable geojoin-demo
 
 executable road-city-join-demo
     import:           warnings
-    hs-source-dirs:   app
-    main-is:          RoadCityJoin.hs
+    hs-source-dirs:   examples/road-city-join-demo
+    main-is:          Main.hs
     default-language: Haskell2010
     build-depends:
         base >= 4.14 && < 5,
@@ -92,8 +96,8 @@ executable road-city-join-demo
 
 executable ibge-road-join-demo
     import:           warnings
-    hs-source-dirs:   app
-    main-is:          IbgeRoadJoin.hs
+    hs-source-dirs:   examples/ibge-road-join-demo
+    main-is:          Main.hs
     default-language: Haskell2010
     build-depends:
         base >= 4.14 && < 5,

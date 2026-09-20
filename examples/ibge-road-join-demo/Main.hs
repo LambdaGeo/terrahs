@@ -2,7 +2,7 @@
 -- road cross?" spatial join as road-city-join-demo, but against
 -- REAL municipal boundaries this time — IBGE's 2025 Malha Municipal
 -- for Maranhão (217 municipalities, SIRGAS2000 lat/long,
--- data\/ibge\/MA_Municipios_2025.shp\/.dbf).
+-- examples\/data\/ibge\/MA_Municipios_2025.shp\/.dbf).
 --
 -- There's no real road layer to pair it with (none was available),
 -- so the "road" below is INVENTED — a hand-drawn line, not GPS or
@@ -25,30 +25,6 @@ import Data.List (intercalate)
 import System.IO (hSetEncoding, stdout, utf8)
 
 import TerraHS
-
--- * A local line-crosses-polygon test (see road-city-join-demo for
--- the same code with more commentary on why it's here rather than in
--- TerraHS.Geometry.Topology).
-
-orientation :: Coord -> Coord -> Coord -> Double
-orientation (Coord px py) (Coord qx qy) (Coord rx ry) =
-  (qx - px) * (ry - py) - (qy - py) * (rx - px)
-
-segmentsIntersect :: (Coord, Coord) -> (Coord, Coord) -> Bool
-segmentsIntersect (p1, p2) (p3, p4) =
-  let o1 = orientation p1 p2 p3
-      o2 = orientation p1 p2 p4
-      o3 = orientation p3 p4 p1
-      o4 = orientation p3 p4 p2
-  in (signum o1 /= signum o2) && (signum o3 /= signum o4)
-
-crossesPolygon :: Line -> Polygon -> Bool
-crossesPolygon line poly =
-  any (\v -> pointInPolygon (Point v) poly) (lineCoords line)
-    || any (\seg -> any (segmentsIntersect seg) polyEdges) (lineSegments line)
-  where
-    ring      = polygonRing poly
-    polyEdges = zip ring (drop 1 ring)
 
 -- * Loading the real municipality layer, with two attributes per city
 
@@ -95,7 +71,7 @@ main = do
   putStrLn "Road: hand-drawn, NOT real GPS/OSM data -- see the source for its exact coordinates."
   putStrLn ""
 
-  citiesResult <- loadCities "data/ibge/MA_Municipios_2025.shp"
+  citiesResult <- loadCities "examples/data/ibge/MA_Municipios_2025.shp"
 
   case citiesResult of
     Left err -> error ("failed to read the IBGE shapefile: " ++ err)

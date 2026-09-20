@@ -101,6 +101,21 @@ cases =
       pointInPolygon (Point (Coord 2 2)) square)
   , ("Topology: pointInPolygon — a point clearly outside the square",
       not (pointInPolygon (Point (Coord 10 10)) square))
+
+  -- crossesPolygon: the same regression cases examples/road-city-join-demo
+  -- was built around — one road with a vertex landing inside the
+  -- polygon, one crossing straight through an edge with no vertex
+  -- ever inside (the case a naive "is an endpoint inside?" test would
+  -- miss).
+  , ("Topology: crossesPolygon — a line with a vertex inside the square crosses it",
+      let Just ln = mkLine [Coord (-1) 2, Coord 2 2, Coord 6 2]
+      in crossesPolygon ln square)
+  , ("Topology: crossesPolygon — a line passing straight through with no vertex inside still crosses",
+      let Just ln = mkLine [Coord (-1) 2, Coord 6 2]
+      in crossesPolygon ln square)
+  , ("Topology: crossesPolygon — a line entirely outside the square doesn't cross it",
+      let Just ln = mkLine [Coord 10 10, Coord 20 20]
+      in not (crossesPolygon ln square))
   ]
 
 main :: IO ()

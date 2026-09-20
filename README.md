@@ -31,10 +31,16 @@ The library serves two purposes at once:
   `Geometry` type class unifying area/perimeter/centroid/envelope
   across all three.
 - **Topology** — bounding-box overlap tests, exact point-on-line
-  (via point-to-segment distance) and point-in-polygon (via ray
-  casting) predicates.
+  (via point-to-segment distance), point-in-polygon (via ray
+  casting), and line-crosses-polygon (via segment intersection)
+  predicates.
 - **File I/O** — read and write WKT and GeoJSON; read ESRI Shapefiles
-  (`.shp` + `.dbf`), pairing geometry with attributes.
+  (`.shp` + `.dbf`, UTF-8 or Latin-1 attribute text), pairing geometry
+  with attributes. `TerraHS.IO.Vector` also has typed helpers
+  (`asPolygonPairs`/`asLinePairs`/`asPointPairs`, `attrAs`) and
+  `TerraHS.Algebra.Coverage.fromPairs` turns a loaded layer into a
+  `Coverage` in one expression — see `examples/road-city-join-demo`
+  and `examples/ibge-road-join-demo`.
 - **Map algebra** — two complementary implementations:
   - `TerraHS.Algebra.Coverage`, a direct reconstruction of the
     algebra from the original thesis: a discrete `Coverage`
@@ -60,22 +66,28 @@ terrahs-new/
 │   │   ├── Polygon.hs
 │   │   ├── BBox.hs
 │   │   ├── Any.hs                -- AnyGeometry, a sum of Point/Line/Polygon (used by I/O)
-│   │   └── Topology.hs           -- spatial predicates
+│   │   └── Topology.hs           -- spatial predicates (incl. crossesPolygon)
 │   ├── TerraHS/IO/
 │   │   ├── WKT.hs                -- hand-written parser combinator
 │   │   ├── GeoJSON.hs            -- via aeson
 │   │   ├── Shapefile.hs          -- .shp via binary
-│   │   ├── Dbf.hs                -- .dbf (attributes) via binary
-│   │   └── Vector.hs             -- joins .shp + .dbf (readVectorFile)
+│   │   ├── Dbf.hs                -- .dbf (attributes) via binary, UTF-8 aware
+│   │   └── Vector.hs             -- joins .shp + .dbf (readVectorFile), typed attribute helpers
 │   └── TerraHS/Algebra/
-│       ├── Coverage.hs           -- the thesis's map algebra
+│       ├── Coverage.hs           -- the thesis's map algebra (incl. fromPairs)
 │       ├── Funct.hs              -- the generic lifting class (lift1/lift2/...)
 │       └── Field.hs              -- 2D grid with local/focal/zonal/global operators
 ├── app/
-│   ├── Main.hs                   -- demo executable
+│   ├── Main.hs                   -- flagship demo executable
 │   └── Synthetic.hs              -- reproducible synthetic-data generation
+├── examples/                     -- worked examples beyond the flagship demo — see examples/README.md
+│   ├── README.md
+│   ├── data/                     -- shapefiles shared by the examples (synthetic + real IBGE data)
+│   ├── geojoin-demo/Main.hs
+│   ├── road-city-join-demo/Main.hs
+│   └── ibge-road-join-demo/Main.hs
 └── test/
-    └── Spec.hs                   -- 24 test cases
+    └── Spec.hs                   -- 27 test cases
 ```
 
 ## Installation
@@ -135,6 +147,16 @@ the thesis's Pará deforestation example, with reproducible synthetic
 data) to the terminal:
 ```sh
 cabal run terrahs-demo
+```
+
+**Run the examples** — three more worked demos beyond `terrahs-demo`,
+covering spatial joins (synthetic and real Shapefile data, including
+a real IBGE municipality layer). See
+[`examples/README.md`](examples/README.md) for what each one does:
+```sh
+cabal run geojoin-demo
+cabal run road-city-join-demo
+cabal run ibge-road-join-demo
 ```
 
 **Explore interactively in a REPL:**
@@ -241,31 +263,49 @@ consumers of just the library don't pull it in.
 - No hole support in polygons (`Polygon` models only the outer ring);
   the Shapefile reader likewise doesn't distinguish an outer ring from
   a hole by winding order.
-- `Topology` covers bounding-box overlap plus exact point-on-line and
-  point-in-polygon tests; an exact segment-to-segment
-  (`Line`-`Line`) test is not yet implemented.
+- `Topology`'s `crossesPolygon` (line-crosses-polygon) is a
+  simplified generic-position segment-intersection test — it doesn't
+  special-case exact collinear overlap between a line segment and a
+  polygon edge, which a fully general-purpose version would need to
+  handle. Polygon-polygon topology (overlap, contains) beyond
+  bounding boxes is still not implemented.
 - GeoJSON reading/writing covers bare geometry objects, not
   `Feature`/`FeatureCollection` (which would carry attributes
   alongside geometry).
 - Shapefile reading covers `.shp` and `.dbf`; the `.shx` index file is
-  not read (not needed for sequential reads of a whole file).
+  not read (not needed for sequential reads of a whole file). `.dbf`
+  text fields are decoded as UTF-8 when valid, falling back to one
+  `Char` per byte otherwise (doesn't yet consult the `.cpg` sidecar
+  file some Shapefiles ship with, which names the encoding
+  explicitly).
 
-**Build verification.** The library, test suite, and demo executable
-have been built and run with GHC 9.4.7 (`aeson-2.1.2.1`,
+**Build verification.** The library, test suite, and all four
+executables have been built and run with GHC 9.4.7 (`aeson-2.1.2.1`,
 `binary-0.8.9.1`, `random-1.2.1.1`, `text-2.0.2`, all other
-dependencies from GHC's boot packages). All 24 test cases pass. One
-real bug was found and fixed in the process: both `test/Spec.hs` and
-`app/Main.hs` print non-ASCII characters (em dashes, in test names and
-section headers), and on a system without a UTF-8 locale configured
-(e.g. `LC_CTYPE=POSIX`, common in minimal containers/CI images), GHC's
-runtime defaults `stdout` to an encoding that can't represent them,
-crashing with `commitBuffer: invalid argument`. Both `main` functions
-now call `hSetEncoding stdout utf8` explicitly at startup, so this no
-longer depends on the environment's locale. The Shapefile/DBF/Vector
-I/O modules compile cleanly but have not been exercised against real
-`.shp`/`.dbf` files as part of this verification — only unit-testable
-logic (geometry, WKT, GeoJSON round-tripping, the map algebra) has
-been run.
+dependencies from GHC's boot packages). All 27 test cases pass. Two
+real bugs were found and fixed in the process, both while actually
+running the code rather than just reading it:
+
+- Both `test/Spec.hs` and `app/Main.hs` print non-ASCII characters
+  (em dashes, in test names and section headers), and on a system
+  without a UTF-8 locale configured (e.g. `LC_CTYPE=POSIX`, common in
+  minimal containers/CI images), GHC's runtime defaults `stdout` to an
+  encoding that can't represent them, crashing with `commitBuffer:
+  invalid argument`. Every `main` now calls `hSetEncoding stdout utf8`
+  explicitly at startup, so this no longer depends on the
+  environment's locale.
+- `TerraHS.IO.Dbf` originally decoded `.dbf` text fields one byte per
+  `Char`, which mangles multi-byte UTF-8 — invisible against ASCII
+  test fixtures, but real once a real-world Shapefile was loaded (see
+  `examples/ibge-road-join-demo`, whose IBGE source data is full of
+  accented Portuguese names). Fixed to try UTF-8 first, falling back
+  to one-`Char`-per-byte only when the bytes aren't valid UTF-8.
+
+The Shapefile/DBF/Vector I/O modules are now exercised against real
+data, not just unit-testable synthetic fixtures: `examples/` loads
+both a small hand-built Shapefile pair and IBGE's real Maranhão
+municipality layer (217 polygons, ~280 parts, 13MB) — the latter
+reads and joins in about 2 seconds.
 
 ## References
 

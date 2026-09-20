@@ -3,65 +3,20 @@
 -- 'TerraHS.IO.Vector.readVectorFile', and answers, for each road,
 -- "which municipalities does it cross?".
 --
--- This is a spatial join by "crosses" rather than "contains" (the
--- predicate 'geojoin-demo' uses via 'pointInPolygon'). TerraHS's
--- 'TerraHS.Geometry.Topology' module doesn't have an exact
--- line-crosses-polygon test yet (only a bounding-box 'intersects', a
--- point-on-line test, and a point-in-polygon test — the module's own
--- haddock flags the exact segment-to-segment case as still pending).
--- So this demo builds 'crossesPolygon' locally, on top of the
--- primitives that already exist: a standard 2D segment-intersection
--- test, checked against every edge of the polygon, plus
--- 'pointInPolygon' as a shortcut for the case where a road vertex
--- itself lies inside.
+-- This is a spatial join by "crosses" (via
+-- 'TerraHS.Geometry.Topology.crossesPolygon') rather than "contains"
+-- (the predicate 'geojoin-demo' uses via 'pointInPolygon') — same
+-- 'select'/'compose' pattern, different predicate.
 --
 -- Shapefile-to-'Coverage' plumbing goes through 'asPolygonPairs' \/
 -- 'asLinePairs' and 'attrAs' (from "TerraHS.IO.Vector") and
--- 'fromPairs' (from "TerraHS.Algebra.Coverage") — the three
--- additions that replace what used to be a hand-rolled
--- pattern-match-and-lookup dance in an earlier version of this file.
+-- 'fromPairs' (from "TerraHS.Algebra.Coverage").
 module Main (main) where
 
 import Data.List (intercalate)
 import System.IO (hSetEncoding, stdout, utf8)
 
 import TerraHS
-
--- * A local line-crosses-polygon test
---
--- Not (yet) part of TerraHS.Geometry.Topology — see the module
--- haddock above.
-
--- | Twice the signed area of the triangle (p, q, r) — its sign gives
--- the turn direction (>0 counter-clockwise, <0 clockwise, 0
--- collinear). The standard building block for segment intersection.
-orientation :: Coord -> Coord -> Coord -> Double
-orientation (Coord px py) (Coord qx qy) (Coord rx ry) =
-  (qx - px) * (ry - py) - (qy - py) * (rx - px)
-
--- | Do two segments cross? A simplified generic-position test (via
--- 'orientation' sign changes) — it doesn't special-case exact
--- collinear overlap, which is enough for this demo's data but would
--- need extending for a general-purpose library function.
-segmentsIntersect :: (Coord, Coord) -> (Coord, Coord) -> Bool
-segmentsIntersect (p1, p2) (p3, p4) =
-  let o1 = orientation p1 p2 p3
-      o2 = orientation p1 p2 p4
-      o3 = orientation p3 p4 p1
-      o4 = orientation p3 p4 p2
-  in (signum o1 /= signum o2) && (signum o3 /= signum o4)
-
--- | A road crosses a municipality if any of its segments crosses one
--- of the polygon's edges, or if any of its vertices lies inside the
--- polygon (covers the case of a road segment starting or ending
--- inside, rather than passing all the way through).
-crossesPolygon :: Line -> Polygon -> Bool
-crossesPolygon line poly =
-  any (\v -> pointInPolygon (Point v) poly) (lineCoords line)
-    || any (\seg -> any (segmentsIntersect seg) polyEdges) (lineSegments line)
-  where
-    ring      = polygonRing poly
-    polyEdges = zip ring (drop 1 ring)
 
 -- * Loading the two layers straight into Coverages
 
@@ -86,6 +41,9 @@ loadRoads path = fmap toPairs <$> readVectorFile path
     toPairs feats =
       [ (name, l) | (l, attrs) <- asLinePairs feats, Just name <- [attrAs "NAME" attrs] ]
 
+dataDir :: FilePath
+dataDir = "examples/data"
+
 main :: IO ()
 main = do
   hSetEncoding stdout utf8
@@ -93,19 +51,19 @@ main = do
   putStrLn "== road-city-join-demo: which municipalities does each road cross? =="
   putStrLn ""
 
-  citiesResult <- loadCities "data/cities.shp"
-  roadsResult  <- loadRoads  "data/roads.shp"
+  citiesResult <- loadCities (dataDir ++ "/cities.shp")
+  roadsResult  <- loadRoads  (dataDir ++ "/roads.shp")
 
   case (citiesResult, roadsResult) of
-    (Left err, _) -> error ("failed to read data/cities.shp: " ++ err)
-    (_, Left err) -> error ("failed to read data/roads.shp: " ++ err)
+    (Left err, _) -> error ("failed to read cities.shp: " ++ err)
+    (_, Left err) -> error ("failed to read roads.shp: " ++ err)
     (Right citiesCov, Right roads) -> do
-      putStrLn (show (numElems citiesCov) ++ " municipalities loaded from data/cities.shp:")
+      putStrLn (show (numElems citiesCov) ++ " municipalities loaded from cities.shp:")
       mapM_ (\poly -> putStrLn ("  " ++ covFun citiesCov poly ++ ", area = " ++ show (area poly)))
             (domain citiesCov)
 
       putStrLn ""
-      putStrLn (show (length roads) ++ " roads loaded from data/roads.shp:")
+      putStrLn (show (length roads) ++ " roads loaded from roads.shp:")
       mapM_ (\(name, l) -> putStrLn ("  " ++ name ++ ", length = " ++ show (lineLength l))) roads
 
       -- select's predicate has type (a -> ref -> Bool); here that's
