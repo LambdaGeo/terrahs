@@ -53,3 +53,36 @@ municipality's name *and* its official area, both straight from the
 ```sh
 cabal run ibge-road-join-demo
 ```
+
+## `comonad-ca-demo`
+
+The cellular-automata / dynamic-spatial-model pattern from the paper
+*"Modelos dinâmicos espaciais em programação funcional"* (Costa et
+al., WORCAP/INPE), reformulated as a co-Kleisli function over a
+comonad (`Control.Comonad.Store`, from the `comonad` package) instead
+of the paper's hand-written neighbourhood-filtering recursion:
+`extend rule` applies the transition rule to every cell of the world
+at once, replacing the paper's manual `sim` loop with `iterate (extend
+rule)`. Two models, both self-checked against an independently known
+result rather than just printed:
+
+* Conway's Game of Life on an infinite grid — a glider, checked
+  against the textbook fact that it reproduces itself shifted by
+  `(+1,+1)` after 4 generations.
+* A diffusion/contamination model over polygon geometry, using
+  TerraHS's own `intersects` as the adjacency predicate (composed with
+  a "not myself" `Predicate` via its `Monoid` instance — the
+  `Data.Functor.Contravariant` composition piece the paper's spatial
+  model called for), over six synthetic squares laid out so the spread
+  is gradual and hand-traceable, checked against a BFS worked out by
+  hand.
+
+It also bridges both ways between `Store` and TerraHS's own
+`Coverage` (`storeAt`, `storeToCoverage`), so the comonadic simulation
+step is a drop-in replacement for the "decide next state per cell"
+step of a TerraHS model, not a separate universe. It only depends on
+TerraHS as a library — none of this lives in the core package.
+
+```sh
+cabal run comonad-ca-demo
+```

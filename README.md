@@ -50,6 +50,13 @@ The library serves two purposes at once:
     Tomlin-style raster algebra (local, focal, zonal, global
     operators over a 2D grid), reconstructed from the `Funct` type
     class found in the original codebase.
+- **Dynamic spatial models** — `examples/comonad-ca-demo` reformulates
+  the cellular-automata pattern (used to model diffusion/contamination
+  spread over geometry) as a co-Kleisli function over a
+  `Control.Comonad.Store` comonad, with `extend` applying the
+  transition rule to the whole world at once, and bridges both ways
+  with `Coverage`. Lives entirely as an example — the core library
+  stays free of the `comonad`/`contravariant` dependencies it uses.
 
 ## Project layout
 
@@ -85,7 +92,8 @@ terrahs-new/
 │   ├── data/                     -- shapefiles shared by the examples (synthetic + real IBGE data)
 │   ├── geojoin-demo/Main.hs
 │   ├── road-city-join-demo/Main.hs
-│   └── ibge-road-join-demo/Main.hs
+│   ├── ibge-road-join-demo/Main.hs
+│   └── comonad-ca-demo/Main.hs
 └── test/
     └── Spec.hs                   -- 27 test cases
 ```
@@ -149,14 +157,16 @@ data) to the terminal:
 cabal run terrahs-demo
 ```
 
-**Run the examples** — three more worked demos beyond `terrahs-demo`,
+**Run the examples** — four more worked demos beyond `terrahs-demo`,
 covering spatial joins (synthetic and real Shapefile data, including
-a real IBGE municipality layer). See
-[`examples/README.md`](examples/README.md) for what each one does:
+a real IBGE municipality layer) and a comonad-based dynamic spatial
+model. See [`examples/README.md`](examples/README.md) for what each
+one does:
 ```sh
 cabal run geojoin-demo
 cabal run road-city-join-demo
 cabal run ibge-road-join-demo
+cabal run comonad-ca-demo
 ```
 
 **Explore interactively in a REPL:**
