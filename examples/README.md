@@ -60,11 +60,15 @@ The cellular-automata / dynamic-spatial-model pattern from the paper
 *"Modelos dinâmicos espaciais em programação funcional"* (Costa et
 al., WORCAP/INPE), reformulated as a co-Kleisli function over a
 comonad (`Control.Comonad.Store`, from the `comonad` package) instead
-of the paper's hand-written neighbourhood-filtering recursion:
-`extend rule` applies the transition rule to every cell of the world
-at once, replacing the paper's manual `sim` loop with `iterate (extend
-rule)`. Two models, both self-checked against an independently known
-result rather than just printed:
+of the paper's hand-written neighbourhood-filtering recursion. The
+stepping-and-neighbourhood machinery itself lives in `TerraHS.CA`, its
+own library component (`terrahs-ca`) — the same role a
+`CellularAutomaton` base class plays in an object-oriented framework
+(`neighborValues`, `stepCA` = `extend`, `runCA` = the paper's `sim`
+replaced by `iterate`, `seedCA` = `store`), except there's no class to
+subclass: a model here is just a domain, an adjacency `Predicate`, and
+a rule function. Three models share it, all self-checked against an
+independently known or hand-traced result rather than just printed:
 
 * Conway's Game of Life on an infinite grid — a glider, checked
   against the textbook fact that it reproduces itself shifted by
@@ -76,20 +80,31 @@ result rather than just printed:
   model called for), over six synthetic squares laid out so the spread
   is gradual and hand-traceable, checked against a BFS worked out by
   hand.
+* A forest-fire model (forest / burning / burned) over that same
+  six-square domain and the same adjacency — only the rule and the
+  state type differ from the diffusion model, checked against a
+  hand-traced burn sequence (the fire front trails one step behind
+  where the diffusion would already have spread, since a burning zone
+  only sets its neighbours alight the step before it burns out).
 
 It also bridges both ways between `Store` and TerraHS's own
-`Coverage` (`storeAt`, `storeToCoverage`), so the comonadic simulation
-step is a drop-in replacement for the "decide next state per cell"
-step of a TerraHS model, not a separate universe. It only depends on
-TerraHS as a library — none of this lives in the core package.
+`Coverage` (`storeAt`, `storeToCoverage`, and `fromPairs` for the
+render-facing direction — the same core combinator `road-city-join-demo`
+uses to build a coverage from loaded shapefile data), so the comonadic
+simulation step is a drop-in replacement for the "decide next state
+per cell" step of a TerraHS model, not a separate universe. The
+example itself only depends on TerraHS as a library — none of this
+lives in the core package.
 
 Besides the text output, it renders each run as PNGs (via
-`JuicyPixels`, pure Haskell, no FFI — `Render.hs`, local to this
-example) into `examples/comonad-ca-demo/out/` (not checked in —
-regenerated on every run): one frame per generation/time step plus a
-side-by-side strip, for both the Game of Life grid and the diffusion
-zones (drawn at their real geometric position, via `envelope`, not a
-schematic).
+`TerraHS.Render.PNG`, another library component — `JuicyPixels`, pure
+Haskell, no FFI — generic over any `Coverage a v` where `a` is a
+`Geometry`, not tied to this example's `Zone` type) into
+`examples/comonad-ca-demo/out/` (not checked in — regenerated on every
+run): one frame per generation/time step plus a side-by-side strip,
+for the Game of Life grid, the diffusion zones, and the fire zones —
+all drawn at their real geometric position, via `envelope`, not a
+schematic.
 
 ```sh
 cabal run comonad-ca-demo

@@ -50,13 +50,25 @@ The library serves two purposes at once:
     Tomlin-style raster algebra (local, focal, zonal, global
     operators over a 2D grid), reconstructed from the `Funct` type
     class found in the original codebase.
-- **Dynamic spatial models** — `examples/comonad-ca-demo` reformulates
-  the cellular-automata pattern (used to model diffusion/contamination
-  spread over geometry) as a co-Kleisli function over a
-  `Control.Comonad.Store` comonad, with `extend` applying the
-  transition rule to the whole world at once, and bridges both ways
-  with `Coverage`. Lives entirely as an example — the core library
-  stays free of the `comonad`/`contravariant` dependencies it uses.
+- **Dynamic spatial models** — `TerraHS.CA` (library component
+  `terrahs-ca`) is a small, generic cellular-automaton machine:
+  neighbourhoods and time stepping over a `Control.Comonad.Store`
+  comonad, in the spirit of a `CellularAutomaton` base class but
+  without a class to subclass — a model is just a domain, an adjacency
+  `Predicate`, and a rule function. `examples/comonad-ca-demo` builds
+  three models on it (Conway's Game of Life, a diffusion/contamination
+  spread, and a forest-fire model), all bridging both ways with
+  `Coverage`. `terrahs-ca` and the PNG renderer below are kept as
+  their own components, not the core `library` — reading a shapefile
+  or running the map algebra never pulls in `comonad`, `contravariant`
+  or `JuicyPixels`.
+- **PNG rendering** — `TerraHS.Render.PNG` (library component
+  `terrahs-render`, via `JuicyPixels`, pure Haskell/no FFI) draws any
+  `Coverage a v` (`a` a `Geometry`) at its real geometric position, or
+  a plain `(Int, Int) -> Bool` grid — single frames or side-by-side
+  strips of a whole run. Used by `comonad-ca-demo` to render its three
+  models; not part of the core library, for the same reason as
+  `terrahs-ca`.
 
 ## Project layout
 
@@ -84,6 +96,10 @@ terrahs-new/
 │       ├── Coverage.hs           -- the thesis's map algebra (incl. fromPairs)
 │       ├── Funct.hs              -- the generic lifting class (lift1/lift2/...)
 │       └── Field.hs              -- 2D grid with local/focal/zonal/global operators
+├── ca/                           -- terrahs-ca: generic cellular-automaton machine (Store-based)
+│   └── TerraHS/CA.hs
+├── render/                       -- terrahs-render: PNG rendering (JuicyPixels)
+│   └── TerraHS/Render/PNG.hs
 ├── app/
 │   ├── Main.hs                   -- flagship demo executable
 │   └── Synthetic.hs              -- reproducible synthetic-data generation

@@ -13,13 +13,16 @@
 --
 -- Two things it knows how to draw:
 --
---   * A @'Coverage' a 'Bool'@ where @a@ is a 'Geometry' ('Point',
---     'Line' or 'Polygon') -- each element drawn at its real
---     bounding box (via 'envelope', the same function 'intersects'
---     uses internally), filled by its 'Bool' value. Any coverage of
---     this shape works: a diffusion/contamination state, a "flooded
---     or not" layer, a selection from 'select' turned into a mask --
---     not tied to any one example's domain type.
+--   * A @'Coverage' a v@ where @a@ is a 'Geometry' ('Point', 'Line'
+--     or 'Polygon') -- each element drawn at its real bounding box
+--     (via 'envelope', the same function 'intersects' uses
+--     internally), filled by a colour derived from its value @v@.
+--     'renderCoverage'\/'renderCoverageSteps' cover the common
+--     two-state case (@v ~ 'Bool'@, red\/grey); 'renderCoverageWith'
+--     takes an explicit @v -> 'PixelRGB8'@ for anything with more
+--     states (a fire model's forest\/burning\/burned, say). Any
+--     coverage of this shape works, not tied to any one example's
+--     domain type.
 --   * A plain @(Int, Int) -> Bool@ grid (no geometry involved) -- for
 --     grid-based cellular automata such as Conway's Game of Life,
 --     where the domain is just integer coordinates.
@@ -31,10 +34,14 @@ module TerraHS.Render.PNG
   ( -- * Coverage of geometry -> PNG
     renderCoverage
   , renderCoverageSteps
+  , renderCoverageWith
+  , renderCoverageStepsWith
   , coverageBBox
     -- * Integer grid -> PNG
   , renderGrid
   , renderGridSteps
+    -- * Colour
+  , PixelRGB8 (..)
   ) where
 
 import Codec.Picture (PixelRGB8 (..), generateImage, writePng)
@@ -59,42 +66,60 @@ coverageBBox cov = foldr1 union (map envelope (domain cov))
 -- share (pass the same one across a call to 'renderCoverageSteps' so
 -- frames line up); use 'coverageBBox' for a coverage's own box, or
 -- the union of several via 'TerraHS.Geometry.union' to cover a whole
--- run.
+-- run. A specialization of 'renderCoverageWith' for the common
+-- two-colour case -- for a model with more than two states (three
+-- fire states, say), use 'renderCoverageWith' with your own colour
+-- function instead.
 renderCoverage :: Geometry a => FilePath -> BBox -> Coverage a Bool -> IO ()
-renderCoverage path canvas cov = writePng path img
+renderCoverage = renderCoverageWith boolColor
+
+-- | Several time steps of a boolean coverage side by side, in one
+-- strip PNG.
+renderCoverageSteps :: Geometry a => FilePath -> BBox -> [Coverage a Bool] -> IO ()
+renderCoverageSteps = renderCoverageStepsWith boolColor
+
+boolColor :: Bool -> PixelRGB8
+boolColor True  = PixelRGB8 200 60 60  -- red
+boolColor False = PixelRGB8 210 210 220 -- light grey
+
+-- | The general form behind 'renderCoverage': any @'Coverage' a v@
+-- (still @a@ a 'Geometry'), given a function from a value @v@ to the
+-- colour it's drawn in. Use this directly for a model with more than
+-- two states -- a fire model's @Forest@\/@Burning@\/@Burned@, say.
+renderCoverageWith :: Geometry a => (v -> PixelRGB8) -> FilePath -> BBox -> Coverage a v -> IO ()
+renderCoverageWith color path canvas cov = writePng path img
   where
     (w, h) = canvasPixelSize canvas
-    img    = generateImage (coveragePixel canvas (frameOf cov)) w h
+    img    = generateImage (coveragePixel color canvas (frameOf cov)) w h
 
--- | Several time steps of a coverage side by side, in one strip PNG.
-renderCoverageSteps :: Geometry a => FilePath -> BBox -> [Coverage a Bool] -> IO ()
-renderCoverageSteps path canvas covs = writePng path img
+-- | The general form behind 'renderCoverageSteps'.
+renderCoverageStepsWith :: Geometry a => (v -> PixelRGB8) -> FilePath -> BBox -> [Coverage a v] -> IO ()
+renderCoverageStepsWith color path canvas covs = writePng path img
   where
     (frameW, frameH) = canvasPixelSize canvas
     gap              = 10
     img              = generateImage pixelAt (length covs * (frameW + gap) - gap) frameH
     pixelAt px py
       | localX >= frameW = PixelRGB8 255 255 255
-      | otherwise         = coveragePixel canvas (frameOf (covs !! frameIdx)) localX py
+      | otherwise         = coveragePixel color canvas (frameOf (covs !! frameIdx)) localX py
       where
         (frameIdx, localX) = px `divMod` (frameW + gap)
 
 -- | A coverage's elements, reduced to what rendering needs: each
 -- element's bounding box and value.
-frameOf :: Geometry a => Coverage a Bool -> [(BBox, Bool)]
+frameOf :: Geometry a => Coverage a v -> [(BBox, v)]
 frameOf cov = [ (envelope e, covFun cov e) | e <- domain cov ]
 
 canvasPixelSize :: BBox -> (Int, Int)
 canvasPixelSize (BBox minX minY maxX maxY) =
   (round ((maxX - minX) * scalePx), round ((maxY - minY) * scalePx))
 
-coveragePixel :: BBox -> [(BBox, Bool)] -> Int -> Int -> PixelRGB8
-coveragePixel (BBox cx0 _ _ cy1) frame px py =
+coveragePixel :: (v -> PixelRGB8) -> BBox -> [(BBox, v)] -> Int -> Int -> PixelRGB8
+coveragePixel color (BBox cx0 _ _ cy1) frame px py =
   case [ v | (b, v) <- frame, inside b ] of
     (v : _)
       | onBorder box' -> PixelRGB8 40 40 40
-      | v             -> PixelRGB8 200 60 60
-      | otherwise     -> PixelRGB8 210 210 220
+      | otherwise     -> color v
       where
         box' = head [ b | (b, _) <- frame, inside b ]
     _ -> PixelRGB8 255 255 255

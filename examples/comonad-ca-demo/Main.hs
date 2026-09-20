@@ -13,10 +13,15 @@
 -- s -> m s@ recursion). A 'Control.Comonad.Store.Store' is exactly
 -- "a value together with its position, and a way to peek at any other
 -- position" -- so the rule becomes a single function @Store e Bool ->
--- Bool@, and 'extend' applies it to every cell of the whole world at
--- once, which is what @iterate stepRule@ below replaces 'sim' with.
+-- Bool@, and 'TerraHS.CA.stepCA' applies it to every cell of the
+-- whole world at once, which is what @'TerraHS.CA.runCA'@ below
+-- replaces 'sim' with. 'TerraHS.CA' factors this stepping-and-
+-- neighbourhood machinery out into its own tiny library component
+-- (the same role a @CellularAutomaton@ base class plays in an
+-- object-oriented framework), so a model here is just a domain, an
+-- adjacency 'Predicate', and a rule function -- no class to subclass.
 --
--- Two of the paper's worked models, redone this way:
+-- Three models, all sharing that machinery:
 --
 --   * Conway's Game of Life on an infinite integer grid (the classic
 --     comonadic example, included as the "hello world" check that the
@@ -24,31 +29,38 @@
 --     motion is a well-known, independently checkable fact).
 --   * A diffusion / contamination spread model over polygon geometry
 --     (the paper's actual subject matter), using TerraHS's own
---     'intersects' as the adjacency predicate, and bridging back into
---     'Coverage' at the end -- so the comonadic simulation is a
---     drop-in replacement for the "decide next state per cell" step
---     of a TerraHS model, not a separate universe.
+--     'intersects' as the adjacency predicate.
+--   * A forest-fire model (forest \/ burning \/ burned) over the same
+--     polygon domain, showing a second model built from the exact
+--     same 'TerraHS.CA' pieces as the diffusion one -- only the rule
+--     and the state type change.
+--
+-- All three bridge back into 'Coverage' at the end (via 'fromPairs'
+-- for fire and diffusion, the same core combinator
+-- @road-city-join-demo@ uses to build a coverage from loaded
+-- shapefile data) -- so the comonadic simulation is a drop-in
+-- replacement for the "decide next state per cell" step of a TerraHS
+-- model, not a separate universe.
 --
 -- This lives entirely as an example that /depends on/ TerraHS -- it
--- does not touch the core library, and the 'Coverage'-'Store' bridge
--- functions below ('storeAt', 'storeToCoverage') are local to this
--- file on purpose. The PNG rendering, on the other hand, lives in
--- 'TerraHS.Render.PNG' -- its own library component (@terrahs-render@
--- in @terrahs.cabal@), generic over any @Coverage a Bool@, not
--- specific to this demo's data. It's "TerraHS" in the sense of being
--- part of the project and reusable by any future example, just kept
--- out of the core @terrahs@ library so reading a shapefile doesn't
--- require pulling in JuicyPixels.
+-- does not touch the core library. The reusable pieces
+-- ('TerraHS.CA''s stepping/neighbourhood machinery, and
+-- 'TerraHS.Render.PNG''s rendering) are their own library components
+-- instead, so a future example can reuse them without depending on
+-- @comonad@\/@contravariant@\/@JuicyPixels@ through the core
+-- @terrahs@ library.
 module Main (main) where
 
-import Control.Comonad (extend, extract)
+import Control.Comonad (extract)
 import Control.Comonad.Store (Store, store, pos, peek)
 import Data.Functor.Contravariant (Predicate (..))
 import Data.List (intercalate, sort, nub)
 import System.Directory (createDirectoryIfMissing)
 
 import TerraHS
-import TerraHS.Render.PNG (renderGrid, renderGridSteps, renderCoverage, renderCoverageSteps)
+import TerraHS.CA (neighborValues, runCA, seedCA)
+import TerraHS.Render.PNG
+  (renderGrid, renderGridSteps, renderCoverage, renderCoverageSteps, renderCoverageWith, PixelRGB8 (..))
 
 -- | Where the PNGs land, relative to the repository root (same
 -- convention as the other examples' @dataDir@).
@@ -60,7 +72,9 @@ outDir = "examples/comonad-ca-demo/out"
 -- A 'Coverage a b' is already "a domain, and a function from the
 -- domain to values" -- precisely what 'store' wants. Going the other
 -- way needs an explicit domain to enumerate, since a 'Store' alone
--- doesn't know which positions are "in bounds".
+-- doesn't know which positions are "in bounds". Local to this file --
+-- 'TerraHS.CA' only needs a 'Store', not a 'Coverage', so it has no
+-- reason to depend on the core 'Coverage' type at all.
 
 -- | A coverage's function, lifted into a 'Store' positioned at a
 -- particular domain element.
@@ -78,7 +92,10 @@ storeToCoverage dom w = newCov dom (`peek` w)
 
 type Cell = (Int, Int)
 
--- | The eight Moore neighbours of a cell.
+-- | The eight Moore neighbours of a cell. Enumerated directly (rather
+-- than through 'TerraHS.CA.neighborValues', which needs a finite
+-- domain to search) since the grid here is unbounded -- there's no
+-- list of "every cell" to filter.
 neighbours8 :: Cell -> [Cell]
 neighbours8 (x, y) =
   [ (x + dx, y + dy) | dx <- [-1, 0, 1], dy <- [-1, 0, 1], (dx, dy) /= (0, 0) ]
@@ -93,13 +110,6 @@ lifeRule w =
       liveCount = length (filter id (map (`peek` w) (neighbours8 (pos w))))
   in (alive && (liveCount == 2 || liveCount == 3)) || (not alive && liveCount == 3)
 
--- | One generation: 'extend' applies 'lifeRule' to /every/ position at
--- once -- this single line is the modern replacement for the paper's
--- hand-written "map the rule over the neighbourhood-filtered cells"
--- step.
-stepLife :: Store Cell Bool -> Store Cell Bool
-stepLife = extend lifeRule
-
 -- | A glider, in its classic starting orientation:
 --
 -- > . X .
@@ -112,9 +122,6 @@ stepLife = extend lifeRule
 glider :: [Cell]
 glider = [(1, 0), (2, 1), (0, 2), (1, 2), (2, 2)]
 
-seedLife :: [Cell] -> Store Cell Bool
-seedLife alive = store (`elem` alive) (0, 0)
-
 -- | Renders a rectangular window of a 'Store Cell Bool' as ASCII, for
 -- a human to look at.
 renderLife :: (Int, Int) -> (Int, Int) -> Store Cell Bool -> String
@@ -124,10 +131,10 @@ renderLife (x0, y0) (x1, y1) w =
 
 runLifeDemo :: IO ()
 runLifeDemo = do
-  putStrLn "== Part 1: Conway's Game of Life, via Store + extend =="
-  putStrLn "(the paper's 'sim' recursion, replaced by 'iterate (extend lifeRule)')"
+  putStrLn "== Part 1: Conway's Game of Life, via TerraHS.CA (Store + extend) =="
+  putStrLn "(the paper's 'sim' recursion, replaced by 'runCA lifeRule (seedCA ...)')"
   putStrLn ""
-  let generations = iterate stepLife (seedLife glider)
+  let generations = runCA lifeRule (seedCA (`elem` glider) (0, 0))
   mapM_
     (\(n, w) -> do
         putStrLn ("Generation " ++ show n ++ ":")
@@ -147,9 +154,9 @@ runLifeDemo = do
 
   -- PNGs: one per generation, plus a strip with all of them side by
   -- side, so the run can actually be looked at.
-  let window       = ((-1, -1), (6, 6))
-      pngGens      = take 5 generations
-      aliveFns     = [ (`peek` w) | w <- pngGens ]
+  let window   = ((-1, -1), (6, 6))
+      pngGens  = take 5 generations
+      aliveFns = [ (`peek` w) | w <- pngGens ]
   createDirectoryIfMissing True outDir
   mapM_
     (\(n, aliveFn) -> renderGrid (outDir ++ "/life-gen" ++ show n ++ ".png") (fst window) (snd window) aliveFn)
@@ -159,7 +166,7 @@ runLifeDemo = do
   putStrLn ("PNGs written to " ++ outDir ++ "/life-gen0.png .. life-gen4.png, and life-strip.png")
 
 -- ---------------------------------------------------------------
--- * Part 2: diffusion over polygon geometry
+-- * Shared: the six-zone polygon domain (Parts 2 and 3)
 -- ---------------------------------------------------------------
 
 -- | A named zone: an id (for display and comparison) and the polygon
@@ -199,7 +206,8 @@ sq zid (x0, y0) (x1, y1) =
 -- spread below. That gives: Z1-Z2 (edge x=1), Z2-Z3 (edge x=2), Z3-Z6
 -- (edge x=3), Z2-Z4 (edge y=1), Z4-Z5 (edge y=2), plus two corner
 -- touches, Z1-Z4 (at (1,1)) and Z3-Z4 (at (2,1)) -- every other pair
--- is disjoint.
+-- is disjoint. So each zone's neighbours are: Z1={Z2,Z4},
+-- Z2={Z1,Z3,Z4}, Z3={Z2,Z4,Z6}, Z4={Z1,Z2,Z3,Z5}, Z5={Z4}, Z6={Z3}.
 zones :: [Zone]
 zones =
   [ sq "Z1" (0, 0) (1, 1)
@@ -213,8 +221,8 @@ zones =
 -- | Two 'Predicate's, composed with the 'Monoid' instance for
 -- 'Predicate' (where '<>' is logical AND) -- exactly the composition
 -- the source paper asked for when it wanted to combine a spatial test
--- with a non-spatial one. Here both happen to be spatial/identity
--- tests, but the composition mechanism is the same either way.
+-- with a non-spatial one. Shared by both models built on 'zones'
+-- (diffusion and fire) -- "adjacent" means the same thing to both.
 notSelf :: Predicate (Zone, Zone)
 notSelf = Predicate (\(a, b) -> zoneId a /= zoneId b)
 
@@ -230,24 +238,22 @@ adjacent = notSelf <> touches
 canvasBBox :: BBox
 canvasBBox = foldr1 union (map (envelope . zonePoly) zones)
 
--- | The diffusion rule: a zone is infected next turn if it already is,
--- or if any zone adjacent to it (per 'adjacent' above) is infected
--- now. Same shape as 'lifeRule' -- 'extract' for "me", 'peek' for
--- "some other position" -- just a different rule and a different
--- domain (polygons instead of grid cells).
-diffusionRule :: Store Zone Bool -> Bool
-diffusionRule w =
-  let here             = pos w
-      neighbourInfected = or [ peek z w | z <- zones, getPredicate adjacent (here, z) ]
-  in extract w || neighbourInfected
+-- ---------------------------------------------------------------
+-- * Part 2: diffusion over polygon geometry
+-- ---------------------------------------------------------------
 
-stepDiffusion :: Store Zone Bool -> Store Zone Bool
-stepDiffusion = extend diffusionRule
+-- | The diffusion rule: a zone is infected next turn if it already is,
+-- or if any zone adjacent to it (per 'adjacent') is infected now.
+-- 'neighborValues' -- from 'TerraHS.CA' -- reads every adjacent
+-- zone's value directly; a diffused-or-not state is already a
+-- 'Bool', so "any neighbour infected" is just 'or' over that list.
+diffusionRule :: Store Zone Bool -> Bool
+diffusionRule w = extract w || or (neighborValues adjacent zones w)
 
 -- | Builds the initial state as an ordinary 'Coverage' first (the
 -- shape TerraHS data naturally comes in), then bridges it into a
--- 'Store' with 'storeAt' -- the other direction of the bridge from
--- 'storeToCoverage', used below to read the final state back out.
+-- 'Store' with 'storeAt' -- one way to seed a model, alongside
+-- 'TerraHS.CA.seedCA' (used directly for the fire model below).
 seedDiffusion :: String -> Store Zone Bool
 seedDiffusion startId = storeAt seedCoverage (head zones)
   where
@@ -261,7 +267,7 @@ runDiffusionDemo = do
   putStrLn "== Part 2: diffusion over polygon geometry, seeded at Z1 =="
   putStrLn "(adjacency = TerraHS's own 'intersects', composed with 'notSelf' via Predicate's Monoid)"
   putStrLn ""
-  let steps = iterate stepDiffusion (seedDiffusion "Z1")
+  let steps = runCA diffusionRule (seedDiffusion "Z1")
   mapM_
     (\(n, w) -> putStrLn ("t" ++ show n ++ ": " ++ intercalate ", " (infectedIds w)))
     (zip [0 :: Int ..] (take 5 steps))
@@ -291,7 +297,7 @@ runDiffusionDemo = do
   -- with all of them side by side. 'renderCoverage' only knows about
   -- 'Coverage', not about 'Zone', so each step is turned into a plain
   -- @Coverage Polygon Bool@ first, with 'fromPairs' -- the same core
-  -- combinator 'road-city-join-demo' uses to build a coverage from
+  -- combinator @road-city-join-demo@ uses to build a coverage from
   -- loaded shapefile data.
   let pngSteps    = take 5 steps
       polyCoverage :: Store Zone Bool -> Coverage Polygon Bool
@@ -303,8 +309,81 @@ runDiffusionDemo = do
   putStrLn ""
   putStrLn ("PNGs written to " ++ outDir ++ "/diffusion-t0.png .. diffusion-t4.png, and diffusion-strip.png")
 
+-- ---------------------------------------------------------------
+-- * Part 3: forest fire, over the same polygon domain
+-- ---------------------------------------------------------------
+
+-- | A second model over 'zones' -- same domain, same 'adjacent'
+-- predicate as the diffusion model, only the state type and the rule
+-- change. Modelled directly on a classic forest-fire cellular
+-- automaton (forest catches from a burning neighbour; burning cells
+-- burn out the very next step and never reignite): a forest cell with
+-- at least one burning neighbour catches fire; a burning cell burns
+-- out (becomes 'Burned') the very next step; a burned cell stays
+-- burned.
+data FireState = Forest | Burning | Burned
+  deriving (Eq, Show)
+
+-- | Same shape as 'diffusionRule' -- 'extract' for "me", read
+-- neighbours via 'neighborValues' -- just a three-way state instead
+-- of a boolean one.
+fireRule :: Store Zone FireState -> FireState
+fireRule w =
+  case extract w of
+    Burning -> Burned
+    Forest | Burning `elem` neighborValues adjacent zones w -> Burning
+    other -> other
+
+seedFire :: String -> Store Zone FireState
+seedFire startId = seedCA (\z -> if zoneId z == startId then Burning else Forest) (head zones)
+
+fireStates :: Store Zone FireState -> [(String, FireState)]
+fireStates w = [ (zoneId z, peek z w) | z <- zones ]
+
+fireColor :: FireState -> PixelRGB8
+fireColor Forest  = PixelRGB8 60 140 60   -- green
+fireColor Burning = PixelRGB8 230 100 20  -- orange
+fireColor Burned  = PixelRGB8 70 70 70    -- dark grey
+
+runFireDemo :: IO ()
+runFireDemo = do
+  putStrLn "== Part 3: forest fire over the same polygon domain, seeded at Z1 =="
+  putStrLn "(same 'zones'/'adjacent' as Part 2 -- only the rule and the state type differ)"
+  putStrLn ""
+  let steps = runCA fireRule (seedFire "Z1")
+  mapM_
+    (\(n, w) -> putStrLn ("t" ++ show n ++ ": " ++ intercalate ", " (map showState (fireStates w))))
+    (zip [0 :: Int ..] (take 5 steps))
+
+  putStrLn ""
+  putStrLn "Expected, by hand: a burning zone burns out (Burned) the very next step,"
+  putStrLn "while it sets any still-Forest neighbour alight -- so the fire front trails"
+  putStrLn "one step behind where the diffusion in Part 2 would already have spread."
+  let actual   = map (map snd . fireStates) (take 5 steps)
+      expected =
+        [ [Burning, Forest,  Forest,  Forest,  Forest,  Forest ]  -- t0: Z1
+        , [Burned,  Burning, Forest,  Burning, Forest,  Forest ]  -- t1: Z1|Z2,Z4
+        , [Burned,  Burned,  Burning, Burned,  Burning, Forest ]  -- t2: Z3,Z5 catch
+        , [Burned,  Burned,  Burned,  Burned,  Burned,  Burning]  -- t3: Z6 catches
+        , [Burned,  Burned,  Burned,  Burned,  Burned,  Burned ]  -- t4: burned out
+        ]
+  putStrLn ("Check -- matches the hand-traced burn sequence above: " ++ show (actual == expected))
+
+  let pngSteps  = take 5 steps
+      fireCoverage :: Store Zone FireState -> Coverage Polygon FireState
+      fireCoverage w = fromPairs [ (zonePoly z, peek z w) | z <- zones ]
+  mapM_
+    (\(n, w) -> renderCoverageWith fireColor (outDir ++ "/fire-t" ++ show n ++ ".png") canvasBBox (fireCoverage w))
+    (zip [0 :: Int ..] pngSteps)
+  putStrLn ""
+  putStrLn ("PNGs written to " ++ outDir ++ "/fire-t0.png .. fire-t4.png")
+  where
+    showState (zid, st) = zid ++ "=" ++ show st
+
 main :: IO ()
 main = do
   runLifeDemo
   putStrLn ""
   runDiffusionDemo
+  putStrLn ""
+  runFireDemo
